@@ -17,8 +17,8 @@ TODO: Add diagram
 
 ## Prerequistes
 HTTP/3 over QUIC is so new. QUIC was standardized this May end and HTTP/3 is not yet
-standardized ([IETF draft](There is an IETF draft [here](https://datatracker.ietf.org/doc/html/draft-ietf-quic-http-34)
-)). So creating custom builds, turning on alpha features are expected. I'm running Linux.
+standardized (There is an IETF draft [here](https://datatracker.ietf.org/doc/html/draft-ietf-quic-http-34)). 
+So creating custom builds, turning on alpha features are expected. I'm running Linux.
 
 ### Kubernetes
 This feature requires the supporting both TCP and UDP on the same port at the gateway. By
