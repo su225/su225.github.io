@@ -4,6 +4,11 @@ title = 'Tech notes'
 theme = 'beautifulhugo'
 enableRobotsTXT = true
 
+[Author]
+    name = "Suchith J N"
+    github = "su225"
+    linkedin = "suchithjn"
+
 [markup]
     [markup.highlight]
         lineNos = true
@@ -11,5 +16,15 @@ enableRobotsTXT = true
         anchorlinenos = true
     
     [markup.tableOfContents]
-        ordered = true
-        startLevel = 1
+        ordered = false
+        startLevel = 2
+
+[[menu.main]]
+    name = "Blog"
+    url = ""
+    weight = 1
+
+[[menu.main]]
+    name = "About"
+    url = "/about"
+    weight = 3

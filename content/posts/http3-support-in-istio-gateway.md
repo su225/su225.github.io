@@ -2,8 +2,12 @@
 title: "Supporting HTTP/3 at the ingress gateway in Istio"
 date: 2021-10-23T20:00:17+05:30
 draft: false
+tags: [istio,quic]
 ---
 
+{{< toc >}}
+
+## Introduction
 A few months ago I contributed experimental HTTP/3 support at the Istio ingress gateway
 ([PR](https://github.com/istio/istio/pull/33817)). For the HTTPS gateway
 servers which terminate the TLS at the gateway, it automatically adds a mirror HTTP/3
@@ -12,7 +16,29 @@ on TCP port 443, then an HTTP/3 server is automatically created on UDP port 443 
 illustrated in the diagram below. All you need to do is to flip a switch on pilot and
 open UDP ports.
 
-TODO: Add diagram
+{{< mermaid >}}
+    graph LR
+      client((HTTP client))
+      subgraph cluster
+        subgraph istio-ingressgateway
+          tcpPort("443/TCP - HTTP/2 over TCP")
+          udpPort("443/UDP - HTTP/3 over QUIC")
+        end
+
+        subgraph httpbin
+          httpbinTcpPort(8000/TCP)
+        end
+
+        tcpPort --> httpbinTcpPort
+        udpPort --> httpbinTcpPort
+
+        style tcpPort fill:gold
+        style udpPort fill:yellow
+      end
+
+      client --> tcpPort
+      client --> udpPort
+{{< /mermaid >}}
 
 ## Prerequistes
 HTTP/3 over QUIC is so new as of writing this. QUIC was standardized this May end and HTTP/3 is not yet
@@ -371,4 +397,4 @@ $ qcurl -svk --http3 --resolve httpbin.quic-corp.com:443:$INGRESS_IP https://htt
   }
 }
 {{< / highlight >}}
-And.....There it goes! **IT WORKS!**
+And..... **IT WORKS!**
