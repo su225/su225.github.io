@@ -16,13 +16,14 @@ on TCP port 443, then an HTTP/3 server is automatically created on UDP port 443 
 illustrated in the diagram below. All you need to do is to flip a switch on pilot and
 open UDP ports.
 
+Here is the demo setup
 {{< mermaid >}}
     graph LR
       client((HTTP client))
       subgraph cluster
         subgraph istio-ingressgateway
-          tcpPort("443/TCP - HTTP/2 over TCP")
-          udpPort("443/UDP - HTTP/3 over QUIC")
+          tcpPort("443/TCP")
+          udpPort("443/UDP")
         end
 
         subgraph httpbin
@@ -36,8 +37,8 @@ open UDP ports.
         style udpPort fill:yellow
       end
 
-      client --> tcpPort
-      client --> udpPort
+      client -->|HTTP/2-over-TCP| tcpPort
+      client -->|HTTP/3-over-QUIC| udpPort
 {{< /mermaid >}}
 
 ## Prerequistes
