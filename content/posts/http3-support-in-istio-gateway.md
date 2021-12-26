@@ -5,41 +5,15 @@ draft: false
 tags: [istio,quic]
 ---
 
-{{< toc >}}
-
-## Introduction
 A few months ago I contributed experimental HTTP/3 support at the Istio ingress gateway
 ([PR](https://github.com/istio/istio/pull/33817)). For the HTTPS gateway
 servers which terminate the TLS at the gateway, it automatically adds a mirror HTTP/3
 listener over QUIC provided that there is an open UDP port. If there is an HTTPS server
 on TCP port 443, then an HTTP/3 server is automatically created on UDP port 443 as
-illustrated in the diagram below. All you need to do is to flip a switch on pilot and
-open UDP ports.
+illustrated in the diagram below. **All you need to do is to flip a switch on pilot and
+open UDP ports**.<!--more-->
 
-Here is the demo setup
-{{< mermaid >}}
-    graph LR
-      client((HTTP client))
-      subgraph cluster
-        subgraph istio-ingressgateway
-          tcpPort("443/TCP")
-          udpPort("443/UDP")
-        end
-
-        subgraph httpbin
-          httpbinTcpPort(8000/TCP)
-        end
-
-        tcpPort --> httpbinTcpPort
-        udpPort --> httpbinTcpPort
-
-        style tcpPort fill:gold
-        style udpPort fill:yellow
-      end
-
-      client -->|HTTP/2-over-TCP| tcpPort
-      client -->|HTTP/3-over-QUIC| udpPort
-{{< /mermaid >}}
+{{< toc >}}
 
 ## Prerequistes
 HTTP/3 over QUIC is so new as of writing this. QUIC was standardized this May end and HTTP/3 is not yet
@@ -92,6 +66,32 @@ Demo setup consists of
 2. Deploying httpbin application
 3. Setting up gateway TLS certificates
 4. Configuring ingress gateway
+
+Here is the demo setup
+{{< mermaid >}}
+    graph LR
+      client((HTTP client))
+      subgraph cluster
+        subgraph istio-ingressgateway
+          tcpPort("443/TCP")
+          udpPort("443/UDP")
+        end
+
+        subgraph httpbin
+          httpbinTcpPort(8000/TCP)
+        end
+
+        tcpPort --> httpbinTcpPort
+        udpPort --> httpbinTcpPort
+
+        style tcpPort fill:gold
+        style udpPort fill:yellow
+      end
+
+      client -->|HTTP/2-over-TCP| tcpPort
+      client -->|HTTP/3-over-QUIC| udpPort
+{{< /mermaid >}}
+
 
 ### Setting up Istio
 There are two important things

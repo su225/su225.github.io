@@ -18,6 +18,7 @@ enableRobotsTXT = true
     [markup.tableOfContents]
         ordered = false
         startLevel = 2
+        endLevel = 10
 
 [[menu.main]]
     name = "Blog"
