@@ -4,18 +4,32 @@
 <meta http-equiv=x-ua-compatible content="IE=edge">
 <meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>Supporting HTTP/3 at the ingress gateway in Istio - Tech notes</title>
-<meta name=description content="Contents  Introduction Prerequistes  Kubernetes cURL Istio   Setup  Setting up Istio Deploying httpbin Setting up TLS certificates for the gateway Istio configuration   Demo time    Introduction A few months ago I contributed experimental HTTP/3 support at the Istio ingress gateway (PR). For the HTTPS gateway servers which terminate the TLS at the gateway, it automatically adds a mirror HTTP/3 listener over QUIC provided that there is an open UDP port.">
+<meta name=description content="A few months ago I contributed experimental HTTP/3 support at the Istio ingress gateway
+(PR). For the HTTPS gateway
+servers which terminate the TLS at the gateway, it automatically adds a mirror HTTP/3
+listener over QUIC provided that there is an open UDP port. If there is an HTTPS server
+on TCP port 443, then an HTTP/3 server is automatically created on UDP port 443 as
+illustrated in the diagram below. All you need to do is to flip a switch on pilot and
+open UDP ports.">
 <meta name=author content="Suchith J N"><script type=application/ld+json>{"@context":"http://schema.org","@type":"WebSite","name":"Tech notes","url":"https:\/\/su225.github.io\/"}</script><script type=application/ld+json>{"@context":"http://schema.org","@type":"Organization","name":"","url":"https:\/\/su225.github.io\/"}</script>
-<script type=application/ld+json>{"@context":"http://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"item":{"@id":"https:\/\/su225.github.io\/","name":"home"}},{"@type":"ListItem","position":3,"item":{"@id":"https:\/\/su225.github.io\/posts\/http3-support-in-istio-gateway\/","name":"Supporting HTTP 3 at the ingress gateway in istio"}}]}</script><script type=application/ld+json>{"@context":"http://schema.org","@type":"Article","author":{"name":"Suchith J N"},"headline":"Supporting HTTP\/3 at the ingress gateway in Istio","description":"Contents  Introduction Prerequistes  Kubernetes cURL Istio   Setup  Setting up Istio Deploying httpbin Setting up TLS certificates for the gateway Istio configuration   Demo time    Introduction A few months ago I contributed experimental HTTP\/3 support at the Istio ingress gateway (PR). For the HTTPS gateway servers which terminate the TLS at the gateway, it automatically adds a mirror HTTP\/3 listener over QUIC provided that there is an open UDP port.","inLanguage":"en","wordCount":1716,"datePublished":"2021-10-23T20:00:17","dateModified":"2021-10-23T20:00:17","image":"https:\/\/su225.github.io\/","keywords":["istio, quic"],"mainEntityOfPage":"https:\/\/su225.github.io\/posts\/http3-support-in-istio-gateway\/","publisher":{"@type":"Organization","name":"https:\/\/su225.github.io\/","logo":{"@type":"ImageObject","url":"https:\/\/su225.github.io\/","height":60,"width":60}}}</script>
+<script type=application/ld+json>{"@context":"http://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"item":{"@id":"https:\/\/su225.github.io\/","name":"home"}},{"@type":"ListItem","position":3,"item":{"@id":"https:\/\/su225.github.io\/posts\/http3-support-in-istio-gateway\/","name":"Supporting HTTP 3 at the ingress gateway in istio"}}]}</script><script type=application/ld+json>{"@context":"http://schema.org","@type":"Article","author":{"name":"Suchith J N"},"headline":"Supporting HTTP\/3 at the ingress gateway in Istio","description":"A few months ago I contributed experimental HTTP\/3 support at the Istio ingress gateway (PR). For the HTTPS gateway servers which terminate the TLS at the gateway, it automatically adds a mirror HTTP\/3 listener over QUIC provided that there is an open UDP port. If there is an HTTPS server on TCP port 443, then an HTTP\/3 server is automatically created on UDP port 443 as illustrated in the diagram below. All you need to do is to flip a switch on pilot and open UDP ports.\n","inLanguage":"en","wordCount":1714,"datePublished":"2021-10-23T20:00:17","dateModified":"2021-10-23T20:00:17","image":"https:\/\/su225.github.io\/","keywords":["istio, quic"],"mainEntityOfPage":"https:\/\/su225.github.io\/posts\/http3-support-in-istio-gateway\/","publisher":{"@type":"Organization","name":"https:\/\/su225.github.io\/","logo":{"@type":"ImageObject","url":"https:\/\/su225.github.io\/","height":60,"width":60}}}</script>
 <meta property="og:title" content="Supporting HTTP/3 at the ingress gateway in Istio">
-<meta property="og:description" content="Contents  Introduction Prerequistes  Kubernetes cURL Istio   Setup  Setting up Istio Deploying httpbin Setting up TLS certificates for the gateway Istio configuration   Demo time    Introduction A few months ago I contributed experimental HTTP/3 support at the Istio ingress gateway (PR). For the HTTPS gateway servers which terminate the TLS at the gateway, it automatically adds a mirror HTTP/3 listener over QUIC provided that there is an open UDP port.">
+<meta property="og:description" content="A few months ago I contributed experimental HTTP/3 support at the Istio ingress gateway
+(PR). For the HTTPS gateway
+servers which terminate the TLS at the gateway, it automatically adds a mirror HTTP/3
+listener over QUIC provided that there is an open UDP port. If there is an HTTPS server
+on TCP port 443, then an HTTP/3 server is automatically created on UDP port 443 as
+illustrated in the diagram below. All you need to do is to flip a switch on pilot and
+open UDP ports.">
 <meta property="og:url" content="https://su225.github.io/posts/http3-support-in-istio-gateway/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Tech notes">
 <meta name=twitter:title content="Supporting HTTP/3 at the ingress gateway in Istio">
-<meta name=twitter:description content="Contents  Introduction Prerequistes  Kubernetes cURL Istio   Setup  Setting up Istio Deploying httpbin Setting up TLS certificates for the gateway Istio configuration   Demo time    Introduction A few …">
+<meta name=twitter:description content="A few months ago I contributed experimental HTTP/3 support at the Istio ingress gateway
+(PR). For the HTTPS gateway
+servers which terminate the TLS at the gateway, it automatically adds a mirror …">
 <meta name=twitter:card content="summary">
-<meta name=generator content="Hugo 0.91.0">
+<meta name=generator content="Hugo 0.91.2">
 <link rel=alternate href=https://su225.github.io/index.xml type=application/rss+xml title="Tech notes"><link rel=stylesheet href=https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.10.0/katex.min.css integrity=sha384-9eLZqc9ds8eNjO3TmqPeYcDj8n+Qfa4nuSiGYa6DjLNcv9BtN69ZIulL9+8CqC9Y crossorigin=anonymous>
 <link rel=stylesheet href=https://use.fontawesome.com/releases/v5.5.0/css/all.css integrity=sha384-B4dIYHKNBt8Bc12p+WXckhzcICo0wtJAoU8YZTY5qE0Id1GSseTk6S+L3BlXeVIU crossorigin=anonymous>
 <link rel=stylesheet href=https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css integrity=sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u crossorigin=anonymous><link rel=stylesheet href=https://su225.github.io/css/main.css><link rel=stylesheet href="https://fonts.googleapis.com/css?family=Lora:400,700,400italic,700italic">
@@ -100,11 +114,17 @@
 <div class=row>
 <div class="col-lg-8 col-lg-offset-2 col-md-10 col-md-offset-1">
 <article role=main class=blog-post>
+<p>A few months ago I contributed experimental HTTP/3 support at the Istio ingress gateway
+(<a href=https://github.com/istio/istio/pull/33817>PR</a>). For the HTTPS gateway
+servers which terminate the TLS at the gateway, it automatically adds a mirror HTTP/3
+listener over QUIC provided that there is an open UDP port. If there is an HTTPS server
+on TCP port 443, then an HTTP/3 server is automatically created on UDP port 443 as
+illustrated in the diagram below. <strong>All you need to do is to flip a switch on pilot and
+open UDP ports</strong>.</p>
 <div class=toc>
 <h2>Contents</h2>
 <nav id=TableOfContents>
 <ul>
-<li><a href=#introduction>Introduction</a></li>
 <li><a href=#prerequistes>Prerequistes</a>
 <ul>
 <li><a href=#kubernetes>Kubernetes</a></li>
@@ -124,37 +144,6 @@
 </ul>
 </nav>
 </div>
-<h2 id=introduction>Introduction</h2>
-<p>A few months ago I contributed experimental HTTP/3 support at the Istio ingress gateway
-(<a href=https://github.com/istio/istio/pull/33817>PR</a>). For the HTTPS gateway
-servers which terminate the TLS at the gateway, it automatically adds a mirror HTTP/3
-listener over QUIC provided that there is an open UDP port. If there is an HTTPS server
-on TCP port 443, then an HTTP/3 server is automatically created on UDP port 443 as
-illustrated in the diagram below. All you need to do is to flip a switch on pilot and
-open UDP ports.</p>
-<p>Here is the demo setup
-<link href=/css/mermaid.css type=text/css rel=stylesheet>
-<script defer src=/js/mermaid.js>mermaid.initialize({startOnLoad:!0})</script>
-<div class=mermaid align=center>
-graph LR
-client((HTTP client))
-subgraph cluster
-subgraph istio-ingressgateway
-tcpPort("443/TCP")
-udpPort("443/UDP")
-end
-subgraph httpbin
-httpbinTcpPort(8000/TCP)
-end
-tcpPort --> httpbinTcpPort
-udpPort --> httpbinTcpPort
-style tcpPort fill:gold
-style udpPort fill:yellow
-end
-client -->|HTTP/2-over-TCP| tcpPort
-client -->|HTTP/3-over-QUIC| udpPort
-</div>
-</p>
 <h2 id=prerequistes>Prerequistes</h2>
 <p>HTTP/3 over QUIC is so new as of writing this. QUIC was standardized this May end and HTTP/3 is not yet
 standardized (There is an IETF draft <a href=https://datatracker.ietf.org/doc/html/draft-ietf-quic-http-34>here</a>).
@@ -223,6 +212,29 @@ built from the master branch.</p>
 <li>Setting up gateway TLS certificates</li>
 <li>Configuring ingress gateway</li>
 </ol>
+<p>Here is the demo setup
+<link href=/css/mermaid.css type=text/css rel=stylesheet>
+<script defer src=/js/mermaid.js>mermaid.initialize({startOnLoad:!0})</script>
+<div class=mermaid align=center>
+graph LR
+client((HTTP client))
+subgraph cluster
+subgraph istio-ingressgateway
+tcpPort("443/TCP")
+udpPort("443/UDP")
+end
+subgraph httpbin
+httpbinTcpPort(8000/TCP)
+end
+tcpPort --> httpbinTcpPort
+udpPort --> httpbinTcpPort
+style tcpPort fill:gold
+style udpPort fill:yellow
+end
+client -->|HTTP/2-over-TCP| tcpPort
+client -->|HTTP/3-over-QUIC| udpPort
+</div>
+</p>
 <h3 id=setting-up-istio>Setting up Istio</h3>
 <p>There are two important things</p>
 <ol>
@@ -845,7 +857,7 @@ Suchith J N
 <a href=https://su225.github.io/>Tech notes</a>
 </p>
 <p class="credits theme-by text-muted">
-<a href=https://gohugo.io>Hugo v0.91.0</a> powered &nbsp;&bull;&nbsp; Theme <a href=https://github.com/halogenica/beautifulhugo>Beautiful Hugo</a> adapted from <a href=https://deanattali.com/beautiful-jekyll/>Beautiful Jekyll</a>
+<a href=https://gohugo.io>Hugo v0.91.2</a> powered &nbsp;&bull;&nbsp; Theme <a href=https://github.com/halogenica/beautifulhugo>Beautiful Hugo</a> adapted from <a href=https://deanattali.com/beautiful-jekyll/>Beautiful Jekyll</a>
 </p>
 </div>
 </div>
