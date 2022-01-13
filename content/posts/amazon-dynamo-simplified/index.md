@@ -58,7 +58,8 @@ What was the problem with the then existing data-stores? (mostly traditional RDB
       not be possible on one side of the network partition and this does not satisfy the high availability and always
       writeable requirement. So writing multiple versions (even on both sides of the network partition) is allowed.
   
-   3. **Versioning and causality** - Dynamo uses hybrid timestamp scheme (vector timestamp and clock-time)
+   3. **Versioning and causality** - Dynamo uses hybrid timestamp scheme (vector timestamp and clock-time). This is
+      necessary to determine conflicts and concurrent write scenarios.
 
 3. **Decentralized metadata maintenance** - Because centralized metadata stores, although scalable for very
    large clusters, become another component whose availability has to be maintained in the face of network
