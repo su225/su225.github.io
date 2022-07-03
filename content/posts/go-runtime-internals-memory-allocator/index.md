@@ -89,6 +89,8 @@ calls this function. So this is the entry-point of the memory management subsyst
 # Summary for the impatient
 ![Flowchart of tcmalloc](./assets/tcmalloc-diagram-flowchart.png)
 
+Based on [Google's tcmalloc](https://google.github.io/tcmalloc/design.html)
+
 Takeaways:
 * Highly optimized for small object allocation (<= 32KB).
 * Optimized for multi-threaded environment.
