@@ -11,8 +11,8 @@ enableRobotsTXT = true
 
 [markup]
     [markup.highlight]
-        lineNos = true
-        style = 'dracula'
+        style = 'tango'
+        codeFences = true
         anchorlinenos = true
     
     [markup.tableOfContents]
