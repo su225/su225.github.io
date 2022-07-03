@@ -23,8 +23,6 @@ Before proceeding, I recommend reading an overview of
 Go ahead and read the details only if you are curious about the actual implementation.
 **Most likely, this does not help your day-to-day job using Go**.
 
-{{< toc >}}
-
 **How memory for the dynamic data structures like slice is allocated?**
 Take a look at the code below
 ```go
@@ -58,9 +56,9 @@ The answer to (1) and (2) is the go memory allocator (this post). The answer to 
 two is in the implementation of the slice type. 
 
 When the process starts, usually there are areas in memory called text, stack, global, BSS 
-and heap. The allocator is responsible for deciding where to place in the "data" section. 
-The stack here is NOT goroutine stack. The Goroutine stack, as we will see later, is allocated 
-in the heap area.
+and heap. The allocator is responsible for deciding where to place in the "heap" section. 
+The stack here is NOT goroutine stack. It is called `systemstack` in code. The Goroutine stack, 
+as we will see later, is allocated on the heap.
 
 Let us peek into the source code for creating a slice [here](https://github.com/golang/go/blob/c847a2c9f024f47eee25c132f2d80e7037adea36/src/runtime/slice.go#L88-L104). Notice the function
 called `mallocgc`. 
@@ -88,23 +86,33 @@ So...It looks like `mallocgc` is the function which allocates the space
 for the data structure somewhere in the "heap". In fact, calling `new` also 
 calls this function. So this is the entry-point of the memory management subsystem.
 
-## Summary for the impatient
+# Summary for the impatient
+Takeaways:
+* Highly optimized for small object allocation (<= 32KB).
+* Optimized for multi-threaded environment.
+* For Object sizes between 32KB and 512KB, taking a lock can be avoided sometimes
+  with the use of per-P `pageCache` if allocation does not require page-alignment.
+* Anything above that is directly allocated on the heap which could mean holding the
+  lock on the global `mheap_` data structure. This limits concurrency.
+* It can be visualized as levels of allocators to balance between the amount of excess
+  memory mapped to the process, the cost of holding the global lock and the speed of
+  allocation. Hence it is called "thread-cached" malloc.
+
 TODO: Add flowchart and the link to Google's tcmalloc implementation
 
+{{< toc >}}
 
-## Details
 TODO: Add the layered diagram
 
-A few constraints within the memory management subsystem. Basically, anything that calls
-the memory management subsystem for allocating on the heap is forbidden as it creates a
-circular dependency. That means
+Anything that calls the memory management subsystem for allocating on the heap 
+is **forbidden** as it creates a circular dependency. That means
 * No `make([]type, len, capacity)` and `make(map[keytype]valuetype)`.
 * No `defer` or `go func()` calls. The goroutine stack is allocated on the heap.
 * The `append(slice, elem)` does not work because it also makes heap allocations.
 * The `new` call also calls `mallocgc` and hence cannot be used.
 * `map` cannot be used because the key-value pair is also on the heap.
 
-### Allocators used by the memory management subsystem
+## "Allocator-internal" allocators
 Allocator also has many dynamic data structures like slices, linked-lists, bitmaps etc.
 How is memory allocation handled here? Now it is a chicken-and-egg problem where
 the allocator which is responsible for dynamic memory allocation (and freeing)
@@ -124,57 +132,57 @@ to allocate `arenaHints`, `span` and `cache` related structures.
    be called from within the memory management subsystem. The memory allocated by this
    allocator is **not freed** at all.
 
-#### Persistent allocator - `persistentalloc`
-#### Fixed allocator - `fixalloc`
+### Persistent allocator - `persistentalloc`
+### Fixed allocator - `fixalloc`
 
-### Initialization of memory management data structures
+## Initialization of memory management data structures
 TODO: Add diagram with memory region label of how things look like after initialization
 
-### `sysalloc` and mapping pages from the OS
+## `sysalloc` and mapping pages from the OS
 TODO: Add the state transition diagram along with the explanation of various states
 with attribution to the comments in the source code itself. I have not dived too deep
 into the assembly code that is in there. This is the missing part in my understanding
 that needs to be filled.
 
-### `pagealloc` and Page chunk allocation
+## `pagealloc` and Page chunk allocation
 
-#### Page bitmap
+### Page bitmap
 TODO: Add illustration of addressing (what bit maps to what range)
 TODO: Explain what bitmap means and some optimizations
 
-#### Summary data structure
+### Summary data structure
 TODO: Add illustration of addressing and radix tree diagram
 TODO: Explain the radix tree data structure and aggregation
 
-#### Page chunk allocation
+### Page chunk allocation
 
-#### `pageCache` allocation
+### `pageCache` allocation
 
-#### Growing by mapping more pages
+### Growing by mapping more pages
 
-#### Freeing pages
+### Freeing pages
 
-### `mheap` and Arena allocation
-#### `heapArena` data structure
-#### `heapBits` bitmap data structure
+## `mheap` and Arena allocation
+### `heapArena` data structure
+### `heapBits` bitmap data structure
 
-### `mcentral` and span allocation
-#### `partial` and `full` unswept linked list
+## `mcentral` and span allocation
+### `partial` and `full` unswept linked list
 
-### `mspan` and allocation within the span
+## `mspan` and allocation within the span
 
-### `mcache` and per-P allocation
-### `tinyalloc` and allocating tiny objects (<= 16 bytes)
+## `mcache` and per-P allocation
+## `tinyalloc` and allocating tiny objects (<= 16 bytes)
 
-### `stackalloc` and managing goroutine stacks
+## `stackalloc` and managing goroutine stacks
 
 ## Brief detour - representing type information
 
-### `gcbits` field
-#### GC Program kind
+## `gcbits` field
+### GC Program kind
 
-### `ptrdata` field
+## `ptrdata` field
 
-## The final algorithm
+## Putting everything together
 Congratulations if you have made this far! It is time to put all the things we learned
 together and get into the steps in the flowchart.
