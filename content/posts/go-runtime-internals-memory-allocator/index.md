@@ -87,18 +87,18 @@ for the data structure somewhere in the "heap". In fact, calling `new` also
 calls this function. So this is the entry-point of the memory management subsystem.
 
 # Summary for the impatient
+![Flowchart of tcmalloc](./assets/tcmalloc-diagram-flowchart.png)
+
 Takeaways:
 * Highly optimized for small object allocation (<= 32KB).
 * Optimized for multi-threaded environment.
 * For Object sizes between 32KB and 512KB, taking a lock can be avoided sometimes
   with the use of per-P `pageCache` if allocation does not require page-alignment.
 * Anything above that is directly allocated on the heap which could mean holding the
-  lock on the global `mheap_` data structure. This limits concurrency.
+  lock on the global `mheap_` data structure. This limits concurrency (the Red blocks)
 * It can be visualized as levels of allocators to balance between the amount of excess
   memory mapped to the process, the cost of holding the global lock and the speed of
   allocation. Hence it is called "thread-cached" malloc.
-
-TODO: Add flowchart and the link to Google's tcmalloc implementation
 
 {{< toc >}}
 
