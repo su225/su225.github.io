@@ -101,6 +101,7 @@ Takeaways:
 * It can be visualized as levels of allocators to balance between the amount of excess
   memory mapped to the process, the cost of holding the global lock and the speed of
   allocation. Hence it is called "thread-cached" malloc.
+* No pointers like `*int` are returned.
 
 {{< toc >}}
 
@@ -124,22 +125,196 @@ How is memory allocation handled here? Now it is a chicken-and-egg problem where
 the allocator which is responsible for dynamic memory allocation (and freeing)
 itself needs one. These are allocated **off-heap** and usually they are not swept.
 
-Fortunately, the allocators can be specialized leading to very simple free-list based
-algorithms as we shall see shortly. There are two such "internal allocators" used
-to allocate `arenaHints`, `span` and `cache` related structures.
+Fortunately, these allocators can be specialized leading to very simple algorithms as 
+we shall see shortly. There are two such "internal allocators" used to allocate `arenaHints`,
+`span` and `cache` related structures.
 
-* `fixalloc` - allocates objects of fixed size which is defined in advance. It uses a
-   simple free-list based allocation algorithm where freed objects form a linked list.
-   For expansion, it requests `persistentalloc` for more chunks.
-
-* `persistentalloc` - maps pages directly from the Operating System and hands it over
-   to the requester. This is used by `fixalloc`, by many slice structures within the
-   memory management subsystem for allocating and growing. The usual `append` cannot
-   be called from within the memory management subsystem. The memory allocated by this
-   allocator is **not freed** at all.
+* `fixalloc`
+* `persistentalloc`
 
 ### Persistent allocator - `persistentalloc`
+* Grows in **256KB** chunks and the allocated memory is **not freed**
+* A simple **linked list of 256KB blocks** with address of the next block obtained from the OS.
+* There is both per-P and the global persistent allocators. The latter needs a lock
+
+#### Data structure
+![Persistent allocator](./assets/persistentalloc.png)
+
+#### Allocation
+Some annotations are mine (marked with `@me`) and I have filtered out 
+the code that is not important for understanding how persistent allocator works.
+{{< highlight "go" >}}
+func persistentalloc1(size, align uintptr, sysStat *sysMemStat) *notInHeap {
+	// ..omitted
+
+    // @me: maxBlock=64K. Ask OS directly
+	if size >= maxBlock {
+		return (*notInHeap)(sysAlloc(size, sysStat))
+	}
+
+	var persistent *persistentAlloc
+	
+    // .. omitted
+
+    // @me: If the request does not fit in the current block, then ask OS for
+    // 256K (persistentChunkSize) with `sysAlloc`
+	if persistent.off+size > persistentChunkSize || persistent.base == nil {
+		persistent.base = (*notInHeap)(sysAlloc(persistentChunkSize, &memstats.other_sys))
+		// .. omitted
+
+		// Add the new chunk to the persistentChunks list.
+        // @me: The new chunk is added from the front of the list. The `persistentChunks`
+        //      holds a pointer to the head of the linked list. The atomic operation is
+        //      setting the head after updating the first word to be the previous head.
+        //      This way, the blocks allocated earlier are linked to the one just alloced.
+		for {
+			chunks := uintptr(unsafe.Pointer(persistentChunks))
+			*(*uintptr)(unsafe.Pointer(persistent.base)) = chunks
+			if atomic.Casuintptr((*uintptr)(unsafe.Pointer(&persistentChunks)), chunks, uintptr(unsafe.Pointer(persistent.base))) {
+				break
+			}
+		}
+
+        // @me: Take alignment into account
+		persistent.off = alignUp(goarch.PtrSize, align)
+	}
+    // @me: Address to be returned and advance the offset
+	p := persistent.base.add(persistent.off)
+	persistent.off += size
+
+    // .. omitted
+
+	return p
+}
+{{< /highlight >}}
+
+* If the allocation request exceeds **64KB**, ask the OS directly.
+* If the allocation size fits in the block (as shown), then bump the pointer taking alignment
+  into account (hence the hole in the upper block).
+* If it does not fit into the block, then ask the OS for another **256KB** chunk, set the next
+  pointer to be the block that just ran out of space. Update the `persistentAlloc` data structure
+  with the new base being the just allocated block. Then bump the pointer again.
+
+#### Example usage
+In `runtime/malloc.go`. The following code is resizing `allArenas` slice. The usual `append`
+cannot be used in the allocator code. This is the equivalent of `append` when persistent allocator
+is used (The following code also shows deliberate memory leak within the allocator code).
+```go
+if len(h.allArenas) == cap(h.allArenas) {
+    size := 2 * uintptr(cap(h.allArenas)) * goarch.PtrSize
+    if size == 0 {
+        size = physPageSize
+    }
+    newArray := (*notInHeap)(persistentalloc(size, goarch.PtrSize, &memstats.gcMiscSys))
+    if newArray == nil {
+        throw("out of memory allocating allArenas")
+    }
+    oldSlice := h.allArenas
+    *(*notInHeapSlice)(unsafe.Pointer(&h.allArenas)) = notInHeapSlice{newArray, len(h.allArenas), int(size / goarch.PtrSize)}
+    copy(h.allArenas, oldSlice)
+    // Do not free the old backing array because
+    // there may be concurrent readers. Since we
+    // double the array each time, this can lead
+    // to at most 2x waste.
+}
+```
+
 ### Fixed allocator - `fixalloc`
+![Fixed allocator](./assets/fixalloc/fixalloc-ds.png)
+
+* Chunk size is **16KB**
+* The size of the object allocated here is fixed.
+* Simple [free-list](https://en.wikipedia.org/wiki/Free_list) algorithm.
+* The memory is allocated from [persistentalloc](#persistent-allocator---persistentalloc)
+
+Full declaration
+```go
+type fixalloc struct {
+	size   uintptr
+	first  func(arg, p unsafe.Pointer) // called first time p is returned
+	arg    unsafe.Pointer
+	list   *mlink
+	chunk  uintptr // use uintptr instead of unsafe.Pointer to avoid write barriers
+	nchunk uint32  // bytes remaining in current chunk
+	nalloc uint32  // size of new chunks in bytes
+	inuse  uintptr // in-use bytes now
+	stat   *sysMemStat
+	zero   bool // zero allocations
+}
+```
+
+If you'd like to follow - [Link to implementation](https://github.com/golang/go/blob/3cf79d96105d890d7097d274804644b2a2093df1/src/runtime/mfixalloc.go)
+
+#### Allocation
+[Implementation](https://github.com/golang/go/blob/3cf79d96105d890d7097d274804644b2a2093df1/src/runtime/mfixalloc.go#L73-L101). Some annotations are mine
+
+{{< highlight "go" >}}
+func (f *fixalloc) alloc() unsafe.Pointer {
+	if f.size == 0 {
+		print("runtime: use of FixAlloc_Alloc before FixAlloc_Init\n")
+		throw("runtime: internal error")
+	}
+
+    // @me: Step 1 : Check if we can allocate from free list
+	if f.list != nil {
+		v := unsafe.Pointer(f.list)
+		f.list = f.list.next
+		f.inuse += f.size
+		if f.zero {
+			memclrNoHeapPointers(v, f.size)
+		}
+		return v
+	}
+
+    // @me: Step 2: If we have run out of space, then allocate extra memory
+    // from `persistentalloc`.
+	if uintptr(f.nchunk) < f.size {
+		f.chunk = uintptr(persistentalloc(uintptr(f.nalloc), 0, f.stat))
+		f.nchunk = f.nalloc
+	}
+
+    // @me: Step 3: Bump the pointer and allocate.
+	v := unsafe.Pointer(f.chunk)
+	if f.first != nil {
+		f.first(f.arg, v)
+	}
+	f.chunk = f.chunk + f.size
+	f.nchunk -= uint32(f.size)
+	f.inuse += f.size
+	return v
+}
+{{< /highlight >}}
+
+1. First, check if there are any objects available in the free-list. If yes, then allocate
+   from there and update the head pointer of the free-list to point to the next one.
+2. If there is not enough space, then ask [persistentalloc](#persistent-allocator---persistentalloc)
+   for approximately **16KB** of space.
+3. Bump the pointer in the chunk (new or old).
+
+#### Free
+It just appends to the head of the free list. [Implementation](https://github.com/golang/go/blob/3cf79d96105d890d7097d274804644b2a2093df1/src/runtime/mfixalloc.go#L103-L108)
+
+{{< highlight "go" >}}
+func (f *fixalloc) free(p unsafe.Pointer) {
+	f.inuse -= f.size
+	v := (*mlink)(p)
+	v.next = f.list
+	f.list = v
+}
+{{< /highlight >}}
+
+**NOTE**:
+1. Double-free leads to cycles in the free-list.
+2. From (1), Freeing the same memory back-to-back leads to self-referential cycle in the free-list. 
+3. Memory leak means some area is permanently shaded and it never makes it to the free-list for recycling.
+
+#### Usages
+The entire heap is represented by a global `mheap_` structure. The `mspan`, `mcache` structures containing
+the metadata for the per-P cache and the spans area allocated by `fixedalloc`.
+```go
+spanalloc  fixalloc // allocator for span*
+cachealloc fixalloc // allocator for mcache*
+```
 
 ## Initialization of memory management data structures
 TODO: Add diagram with memory region label of how things look like after initialization

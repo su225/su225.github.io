@@ -11,7 +11,7 @@ enableRobotsTXT = true
 
 [markup]
     [markup.highlight]
-        style = 'tango'
+        style = 'monokai'
         codeFences = true
         anchorlinenos = true
     
