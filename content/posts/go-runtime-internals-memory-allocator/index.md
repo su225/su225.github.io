@@ -104,7 +104,11 @@ Takeaways:
 
 {{< toc >}}
 
-TODO: Add the layered diagram
+The allocator can be visualized as a layer of multiple allocators and caches with
+some requiring locks and others being per-thread.
+
+
+![Allocator hierarchy in tcmalloc](./assets/allocator-hierarchy.png)
 
 Anything that calls the memory management subsystem for allocating on the heap 
 is **forbidden** as it creates a circular dependency. That means
