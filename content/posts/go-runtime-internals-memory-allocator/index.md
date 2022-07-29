@@ -20,11 +20,9 @@ scavenging, scheduler, lifecycle of goroutines etc with illustrations.
 Before proceeding, I recommend reading an overview of 
 [Go scheduler](https://www.ardanlabs.com/blog/2018/08/scheduling-in-go-part1.html),
 [Garbage Collection](https://www.ardanlabs.com/blog/2018/12/garbage-collection-in-go-part1-semantics.html).
-Go ahead and read the details only if you are curious about the actual implementation.
-**Most likely, this does not help your day-to-day job using Go**.
-
-**How memory for the dynamic data structures like slice is allocated?**
-Take a look at the code below
+Go ahead and read this article only if you are curious about the actual implementation.
+Most likely, this does not help your day-to-day job using Go.
+ 
 ```go
 // Allocate a slice with capacity 10. This means
 // space for 10 integers is reserved in the "heap"
@@ -45,109 +43,131 @@ s := "abc"
 // How does it grow as needed?
 go doSomething()
 ```
-Now, answer the following questions
-1. Where does the memory for these structures come from? 
-2. Who decides where exactly in memory these structures are placed?
-3. How do these structures grow/shrink dynamically?
-4. On growing, how to make sure that it does not step on other objects
-  (maybe other slice, maps etc) that are already there in memory?
-
-The answer to (1) and (2) is the go memory allocator (this post). The answer to the other
-two is in the implementation of the slice type. 
-
-When the process starts, usually there are areas in memory called text, stack, global, BSS 
-and heap. The allocator is responsible for deciding where to place in the "heap" section. 
-The stack here is NOT goroutine stack. It is called `systemstack` in code. The Goroutine stack, 
-as we will see later, is allocated on the heap.
-
-Let us peek into the source code for creating a slice [here](https://github.com/golang/go/blob/c847a2c9f024f47eee25c132f2d80e7037adea36/src/runtime/slice.go#L88-L104). Notice the function
-called `mallocgc`. 
-
-{{< highlight go "hl_lines=15" >}}
-func makeslice(et *_type, len, cap int) unsafe.Pointer {
-	mem, overflow := math.MulUintptr(et.size, uintptr(cap))
-	if overflow || mem > maxAlloc || len < 0 || len > cap {
-		// NOTE: Produce a 'len out of range' error instead of a
-		// 'cap out of range' error when someone does make([]T, bignumber).
-		// 'cap out of range' is true too, but since the cap is only being
-		// supplied implicitly, saying len is clearer.
-		// See golang.org/issue/4085.
-		mem, overflow := math.MulUintptr(et.size, uintptr(len))
-		if overflow || mem > maxAlloc || len < 0 {
-			panicmakeslicelen()
-		}
-		panicmakeslicecap()
-	}
-	return mallocgc(mem, et, true)
-}
-{{< / highlight >}}
-
-So...It looks like `mallocgc` is the function which allocates the space
-for the data structure somewhere in the "heap". In fact, calling `new` also 
-calls this function. So this is the entry-point of the memory management subsystem.
+Here are some of the familiar statements in Go code. They all need memory to be dynamically
+allocated somewhere in the "heap" region of memory. The function of the allocator is to decide
+where exactly to allocate, given the size of memory requested. For instance, if a slice needs
+to store 8 integers (8 bytes each), then it requests 64 bytes of memory. In Golang runtime,
+the entrypoint to the allocator function is `mallocgc`. 
 
 # Summary for the impatient
+It can be visualized as layers of allocators to balance between the amount of excess
+memory mapped to the process, the cost of holding the global lock and the speed of allocation. 
+Hence it is called "thread-cached" malloc as shown below.
+
+![Layers in Go's memory allocator](./assets/allocator-hierarchy.png)
+
+The implementation is based on [Google's tcmalloc](https://google.github.io/tcmalloc/design.html).
+The allocator algorithm is summarized in the following flow-chart
+
 ![Flowchart of tcmalloc](./assets/tcmalloc-diagram-flowchart.png)
 
-Based on [Google's tcmalloc](https://google.github.io/tcmalloc/design.html)
-
 Takeaways:
-* Highly optimized for small object allocation (<= 32KB).
-* Optimized for multi-threaded environment.
+* Highly optimized for small object allocation (<= 32KB) and multi-threaded environments.
 * For Object sizes between 32KB and 512KB, taking a lock can be avoided sometimes
   with the use of per-P `pageCache` if allocation does not require page-alignment.
 * Anything above that is directly allocated on the heap which could mean holding the
   lock on the global `mheap_` data structure. This limits concurrency (the Red blocks)
-* It can be visualized as levels of allocators to balance between the amount of excess
-  memory mapped to the process, the cost of holding the global lock and the speed of
-  allocation. Hence it is called "thread-cached" malloc.
-* No pointers like `*int` are returned.
+* Deeper you go in the flowchart, slower it is.
+
+---
 
 {{< toc >}}
 
-The allocator can be visualized as a layer of multiple allocators and caches with
-some requiring locks and others being per-thread.
-
-
-![Allocator hierarchy in tcmalloc](./assets/allocator-hierarchy.png)
-
-Anything that calls the memory management subsystem for allocating on the heap 
-is **forbidden** as it creates a circular dependency. That means
+# Into Go's memory allocator
+We will now dive into the details of Golang's memory allocator subsystem including
+walking through the source code. Anything that calls the memory management subsystem 
+for allocating on the heap is **forbidden** as it creates a circular dependency. 
+That means, in the allocator code
 * No `make([]type, len, capacity)` and `make(map[keytype]valuetype)`.
 * No `defer` or `go func()` calls. The goroutine stack is allocated on the heap.
 * The `append(slice, elem)` does not work because it also makes heap allocations.
 * The `new` call also calls `mallocgc` and hence cannot be used.
 * `map` cannot be used because the key-value pair is also on the heap.
 
-## "Allocator-internal" allocators
+---
+
+## `sysalloc` and mapping pages from the OS
+![Transition of memory regions](./assets/fixalloc/sysalloc-memregion-transition.png)
+
+This is where the Go runtime interacts with the underlying platform (in my case Linux)
+to get pages of memory mapped into the process. In Linux, it calls `mmap`. Any region of
+memory in the process space would be in one of the 4 states. To quote from the comments
+in the source code [here](https://github.com/golang/go/blob/5c8ec89cb53025bc76b242b0d2410bf5060b697e/src/runtime/mem.go#L11-L20)
+
+> Regions of the address space managed by the runtime may be in one of four
+> states at any given time:
+> 1) None - Unreserved and unmapped, the default state of any region.
+> 2) Reserved - Owned by the runtime, but accessing it would cause a fault.
+>               Does not count against the process' memory footprint.
+> 3) Prepared - Reserved, intended not to be backed by physical memory (though
+>               an OS may implement this lazily). Can transition efficiently to
+>               Ready. Accessing memory in such a region is undefined (may
+>               fault, may give back unexpected zeroes, etc.).
+> 4) Ready - may be accessed safely.
+
+The following diagram shows the state transition between various states
+![Memory region state transitions](./assets/sysalloc-memregion-transition.png)
+
+All the `sys*` functions call `mmap` in Linux with different set of flags and permission bits.
+The call to `mmap` is implemented in assembly.
+
+[Manual page for mmap](https://man7.org/linux/man-pages/man2/mmap.2.html). Filling up SI,
+DI, DX, R10, R8, R9 registers is according to the Linux syscall calling convention. The
+`SYS_mmap` refers to the syscall number of `mmap`. Here, the name of the parameters are
+addr, n, prot, flags, fd and off. It seems that all parameters are passed by stack.
+{{< highlight "text" >}}
+TEXT runtime·sysMmap(SB),NOSPLIT,$0
+	MOVQ	addr+0(FP), DI
+	MOVQ	n+8(FP), SI
+	MOVL	prot+16(FP), DX
+	MOVL	flags+20(FP), R10
+	MOVL	fd+24(FP), R8
+	MOVL	off+28(FP), R9
+
+	MOVL	$SYS_mmap, AX
+	SYSCALL
+	CMPQ	AX, $0xfffffffffffff001
+	JLS	ok
+	NOTQ	AX
+	INCQ	AX
+	MOVQ	$0, p+32(FP)
+	MOVQ	AX, err+40(FP)
+	RET
+ok:
+	MOVQ	AX, p+32(FP)
+	MOVQ	$0, err+40(FP)
+	RET
+{{< /highlight >}}
+
+---
+
+## Internal allocators
 Allocator also has many dynamic data structures like slices, linked-lists, bitmaps etc.
 How is memory allocation handled here? Now it is a chicken-and-egg problem where
 the allocator which is responsible for dynamic memory allocation (and freeing)
 itself needs one. These are allocated **off-heap** and usually they are not swept.
 
-Fortunately, these allocators can be specialized leading to very simple algorithms as 
-we shall see shortly. There are two such "internal allocators" used to allocate `arenaHints`,
-`span` and `cache` related structures.
-
+Fortunately, these allocators can be specialized leading to very simple algorithms. There 
+are two such "internal allocators" used to allocate `arenaHints`, `span` and `cache` related
+structures.
 * `fixalloc`
 * `persistentalloc`
+
+---
 
 ### Persistent allocator - `persistentalloc`
 * Grows in **256KB** chunks and the allocated memory is **not freed**
 * A simple **linked list of 256KB blocks** with address of the next block obtained from the OS.
 * There is both per-P and the global persistent allocators. The latter needs a lock
 
-#### Data structure
 ![Persistent allocator](./assets/persistentalloc.png)
 
-#### Allocation
-Some annotations are mine (marked with `@me`) and I have filtered out 
-the code that is not important for understanding how persistent allocator works.
+I have filtered out the code that is not important for understanding how persistent allocator works.
+Here is the implementation and each of the steps are explained below
 {{< highlight "go" >}}
 func persistentalloc1(size, align uintptr, sysStat *sysMemStat) *notInHeap {
 	// ..omitted
 
-    // @me: maxBlock=64K. Ask OS directly
 	if size >= maxBlock {
 		return (*notInHeap)(sysAlloc(size, sysStat))
 	}
@@ -156,17 +176,9 @@ func persistentalloc1(size, align uintptr, sysStat *sysMemStat) *notInHeap {
 	
     // .. omitted
 
-    // @me: If the request does not fit in the current block, then ask OS for
-    // 256K (persistentChunkSize) with `sysAlloc`
 	if persistent.off+size > persistentChunkSize || persistent.base == nil {
 		persistent.base = (*notInHeap)(sysAlloc(persistentChunkSize, &memstats.other_sys))
 		// .. omitted
-
-		// Add the new chunk to the persistentChunks list.
-        // @me: The new chunk is added from the front of the list. The `persistentChunks`
-        //      holds a pointer to the head of the linked list. The atomic operation is
-        //      setting the head after updating the first word to be the previous head.
-        //      This way, the blocks allocated earlier are linked to the one just alloced.
 		for {
 			chunks := uintptr(unsafe.Pointer(persistentChunks))
 			*(*uintptr)(unsafe.Pointer(persistent.base)) = chunks
@@ -175,10 +187,8 @@ func persistentalloc1(size, align uintptr, sysStat *sysMemStat) *notInHeap {
 			}
 		}
 
-        // @me: Take alignment into account
 		persistent.off = alignUp(goarch.PtrSize, align)
 	}
-    // @me: Address to be returned and advance the offset
 	p := persistent.base.add(persistent.off)
 	persistent.off += size
 
@@ -188,47 +198,48 @@ func persistentalloc1(size, align uintptr, sysStat *sysMemStat) *notInHeap {
 }
 {{< /highlight >}}
 
-* If the allocation request exceeds **64KB**, ask the OS directly.
-* If the allocation size fits in the block (as shown), then bump the pointer taking alignment
-  into account (hence the hole in the upper block).
-* If it does not fit into the block, then ask the OS for another **256KB** chunk, set the next
-  pointer to be the block that just ran out of space. Update the `persistentAlloc` data structure
-  with the new base being the just allocated block. Then bump the pointer again.
-
-#### Example usage
-In `runtime/malloc.go`. The following code is resizing `allArenas` slice. The usual `append`
-cannot be used in the allocator code. This is the equivalent of `append` when persistent allocator
-is used (The following code also shows deliberate memory leak within the allocator code).
-```go
-if len(h.allArenas) == cap(h.allArenas) {
-    size := 2 * uintptr(cap(h.allArenas)) * goarch.PtrSize
-    if size == 0 {
-        size = physPageSize
-    }
-    newArray := (*notInHeap)(persistentalloc(size, goarch.PtrSize, &memstats.gcMiscSys))
-    if newArray == nil {
-        throw("out of memory allocating allArenas")
-    }
-    oldSlice := h.allArenas
-    *(*notInHeapSlice)(unsafe.Pointer(&h.allArenas)) = notInHeapSlice{newArray, len(h.allArenas), int(size / goarch.PtrSize)}
-    copy(h.allArenas, oldSlice)
-    // Do not free the old backing array because
-    // there may be concurrent readers. Since we
-    // double the array each time, this can lead
-    // to at most 2x waste.
+The algorithm
+* If the allocation request exceeds **64KB** (`maxBlock`), ask the OS directly.
+{{< highlight "go" >}}
+if size >= maxBlock {
+	return (*notInHeap)(sysAlloc(size, sysStat))
 }
-```
+{{< /highlight >}}
+
+* If the allocation does not fit into the block, then ask the OS for another **256KB** chunk, set the next
+  pointer to be the block that just ran out of space. Update the `persistentAlloc` data structure
+  with the new base being the just allocated block.
+{{< highlight "go" >}}
+if persistent.off+size > persistentChunkSize || persistent.base == nil {
+	persistent.base = (*notInHeap)(sysAlloc(persistentChunkSize, &memstats.other_sys))
+	for {
+		chunks := uintptr(unsafe.Pointer(persistentChunks))
+		*(*uintptr)(unsafe.Pointer(persistent.base)) = chunks
+		if atomic.Casuintptr((*uintptr)(unsafe.Pointer(&persistentChunks)), chunks, uintptr(unsafe.Pointer(persistent.base))) {
+			break
+		}
+	}
+	persistent.off = alignUp(goarch.PtrSize, align)
+}
+{{< /highlight >}}
+
+* Bump the pointer taking alignment into account (hence the hole in the upper block).
+{{< highlight "go" >}}
+p := persistent.base.add(persistent.off)
+persistent.off += size
+return p
+{{< /highlight >}}
+---
 
 ### Fixed allocator - `fixalloc`
 ![Fixed allocator](./assets/fixalloc/fixalloc-ds.png)
 
-* Chunk size is **16KB**
+* **16KB** chunks are allocated from [persistentalloc](#persistent-allocator---persistentalloc) 
 * The size of the object allocated here is fixed.
 * Simple [free-list](https://en.wikipedia.org/wiki/Free_list) algorithm.
-* The memory is allocated from [persistentalloc](#persistent-allocator---persistentalloc)
 
 Full declaration
-```go
+{{< highlight "go" >}}
 type fixalloc struct {
 	size   uintptr
 	first  func(arg, p unsafe.Pointer) // called first time p is returned
@@ -241,55 +252,45 @@ type fixalloc struct {
 	stat   *sysMemStat
 	zero   bool // zero allocations
 }
-```
+{{< /highlight >}}
 
 If you'd like to follow - [Link to implementation](https://github.com/golang/go/blob/3cf79d96105d890d7097d274804644b2a2093df1/src/runtime/mfixalloc.go)
 
 #### Allocation
-[Implementation](https://github.com/golang/go/blob/3cf79d96105d890d7097d274804644b2a2093df1/src/runtime/mfixalloc.go#L73-L101). Some annotations are mine
-
-{{< highlight "go" >}}
-func (f *fixalloc) alloc() unsafe.Pointer {
-	if f.size == 0 {
-		print("runtime: use of FixAlloc_Alloc before FixAlloc_Init\n")
-		throw("runtime: internal error")
-	}
-
-    // @me: Step 1 : Check if we can allocate from free list
-	if f.list != nil {
-		v := unsafe.Pointer(f.list)
-		f.list = f.list.next
-		f.inuse += f.size
-		if f.zero {
-			memclrNoHeapPointers(v, f.size)
-		}
-		return v
-	}
-
-    // @me: Step 2: If we have run out of space, then allocate extra memory
-    // from `persistentalloc`.
-	if uintptr(f.nchunk) < f.size {
-		f.chunk = uintptr(persistentalloc(uintptr(f.nalloc), 0, f.stat))
-		f.nchunk = f.nalloc
-	}
-
-    // @me: Step 3: Bump the pointer and allocate.
-	v := unsafe.Pointer(f.chunk)
-	if f.first != nil {
-		f.first(f.arg, v)
-	}
-	f.chunk = f.chunk + f.size
-	f.nchunk -= uint32(f.size)
-	f.inuse += f.size
-	return v
-}
-{{< /highlight >}}
+[Implementation](https://github.com/golang/go/blob/3cf79d96105d890d7097d274804644b2a2093df1/src/runtime/mfixalloc.go#L73-L101). Algorithm description
 
 1. First, check if there are any objects available in the free-list. If yes, then allocate
    from there and update the head pointer of the free-list to point to the next one.
+{{< highlight "go" >}}
+if f.list != nil {
+	v := unsafe.Pointer(f.list)
+	f.list = f.list.next
+	f.inuse += f.size
+	if f.zero {
+		memclrNoHeapPointers(v, f.size)
+	}
+	return v
+}
+{{< /highlight >}}
 2. If there is not enough space, then ask [persistentalloc](#persistent-allocator---persistentalloc)
    for approximately **16KB** of space.
+{{< highlight "go" >}}
+if uintptr(f.nchunk) < f.size {
+	f.chunk = uintptr(persistentalloc(uintptr(f.nalloc), 0, f.stat))
+	f.nchunk = f.nalloc
+}
+{{</ highlight >}}
 3. Bump the pointer in the chunk (new or old).
+{{< highlight "go" >}}
+v := unsafe.Pointer(f.chunk)
+if f.first != nil {
+	f.first(f.arg, v)
+}
+f.chunk = f.chunk + f.size
+f.nchunk -= uint32(f.size)
+f.inuse += f.size
+return v
+{{</ highlight >}}
 
 #### Free
 It just appends to the head of the free list. [Implementation](https://github.com/golang/go/blob/3cf79d96105d890d7097d274804644b2a2093df1/src/runtime/mfixalloc.go#L103-L108)
@@ -316,14 +317,10 @@ spanalloc  fixalloc // allocator for span*
 cachealloc fixalloc // allocator for mcache*
 ```
 
+---
+
 ## Initialization of memory management data structures
 TODO: Add diagram with memory region label of how things look like after initialization
-
-## `sysalloc` and mapping pages from the OS
-TODO: Add the state transition diagram along with the explanation of various states
-with attribution to the comments in the source code itself. I have not dived too deep
-into the assembly code that is in there. This is the missing part in my understanding
-that needs to be filled.
 
 ## `pagealloc` and Page chunk allocation
 
