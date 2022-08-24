@@ -105,16 +105,15 @@ in the source code [here](https://github.com/golang/go/blob/5c8ec89cb53025bc76b2
 >               fault, may give back unexpected zeroes, etc.).
 > 4) Ready - may be accessed safely.
 
-The following diagram shows the state transition between various states
+Among all these the most important one is the **Ready** state. The memory used by allocator's
+internal data structures and the application must be in this state. The following diagram shows
+the state transition between various states
 ![Memory region state transitions](./assets/sysalloc-memregion-transition.png)
 
 All the `sys*` functions call `mmap` in Linux with different set of flags and permission bits.
-The call to `mmap` is implemented in assembly.
-
-[Manual page for mmap](https://man7.org/linux/man-pages/man2/mmap.2.html). Filling up SI,
-DI, DX, R10, R8, R9 registers is according to the Linux syscall calling convention. The
-`SYS_mmap` refers to the syscall number of `mmap`. Here, the name of the parameters are
-addr, n, prot, flags, fd and off. It seems that all parameters are passed by stack.
+The call to [mmap](https://man7.org/linux/man-pages/man2/mmap.2.html) is implemented in assembly. 
+Filling up SI, DI, DX, R10, R8, R9 registers is according to the Linux syscall calling convention
+on amd64 architecture. The `SYS_mmap` refers to the syscall number of `mmap`. 
 {{< highlight "text" >}}
 TEXT runtime·sysMmap(SB),NOSPLIT,$0
 	MOVQ	addr+0(FP), DI
@@ -156,6 +155,7 @@ structures.
 ---
 
 ### Persistent allocator - `persistentalloc`
+* Simple bump-the-pointer allocator.
 * Grows in **256KB** chunks and the allocated memory is **not freed**
 * A simple **linked list of 256KB blocks** with address of the next block obtained from the OS.
 * There is both per-P and the global persistent allocators. The latter needs a lock
@@ -234,7 +234,7 @@ return p
 ### Fixed allocator - `fixalloc`
 ![Fixed allocator](./assets/fixalloc/fixalloc-ds.png)
 
-* **16KB** chunks are allocated from [persistentalloc](#persistent-allocator---persistentalloc) 
+* Grows by **16KB** - memory is obtained from [persistentalloc](#persistent-allocator---persistentalloc) 
 * The size of the object allocated here is fixed.
 * Simple [free-list](https://en.wikipedia.org/wiki/Free_list) algorithm.
 
@@ -320,9 +320,41 @@ cachealloc fixalloc // allocator for mcache*
 ---
 
 ## Initialization of memory management data structures
-TODO: Add diagram with memory region label of how things look like after initialization
+The memory management data structures are initialized at the start of the process before the main goroutine
+is called. It initializes the `mheap_` data structure which lives in the global memory. The main steps in
+`mheap_` initialization are as follows
+* Initialize `spanalloc` and `cachealloc` which are [fixed allocators](#fixed-allocator---fixalloc)
+* Initialize `mcentral` sizeclasses. 
+* Initialize `pagealloc` which will be described next.
 
 ## `pagealloc` and Page chunk allocation
+The page allocator is responsible for getting and returning pages from/to the underlying Operating System. 
+It calls [system allocator](#sysalloc-and-mapping-pages-from-the-os) functions like `sysAlloc`, `sysFree` etc.
+* Grows by **4MB** at a time or **512 pages**(8KB each) by getting memory from [**system allocator**](#sysalloc-and-mapping-pages-from-the-os).
+* Allocates one or more pages at a time (minimum allocation is **8KB**)
+
+Some important data structures are as follows
+{{< highlight "go" >}}
+// .. many fields and comments are omitted
+type pageAlloc struct {
+	summary    [summaryLevels][]pallocSum
+	chunks     [1 << pallocChunksL1Bits]*[1 << pallocChunksL2Bits]pallocData
+	searchAddr offAddr
+	start, end chunkIdx
+	inUse      addrRanges
+}
+{{</ highlight >}}
+
+| Field | Description |
+|-------|-------------|
+| `inUse` | List of heap address ranges that are usable for allocation. That is, the amount of memory in `Ready` state |
+| `searchAddr` | Address from which the search for the free space to service an allocation request starts |
+| `chunks` | Each chunk consists of **512 pages**. It consists of the **bitmap** (512/64 = 8 64-bit integers per chunk). 1 means allocated. The only valid chunks are those which are in the address range in `inUse`. The rest of the memory won't be in `Ready` state and hence it could cause "segmentation fault" |
+| `summary` | It represents a tree structure where each level contains the summary of the level below it. The lowest level represents the summary of a chunk containing (start, end, max). Start is the first page number within the range that is allocated. End is the last page number within the range represented that is allocated (in `chunks` bitmap, it would be 1). Max is the maximum gap in the range. The gap refers to the range which is allocated (largest segment with contiguous zeros in the area) |
+| `start`, `end` | Start and end represent the chunk index known to `pagealloc`. These are manipulated while **growing** |
+
+Pictorial representation
+![Pagealloc data structures](./assets/pagealloc-datastructures.png)
 
 ### Page bitmap
 TODO: Add illustration of addressing (what bit maps to what range)
