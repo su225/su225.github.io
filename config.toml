@@ -12,7 +12,7 @@ enableRobotsTXT = true
 [markup]
     [markup.highlight]
         lineNos = true
-        style = 'dracula'
+        style = 'xcode-dark'
         anchorlinenos = true
     
     [markup.tableOfContents]
