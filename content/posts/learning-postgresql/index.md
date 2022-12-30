@@ -1,356 +1,114 @@
 ---
-title: "Diving into the internals of Postgresql"
+title: "Postgresql internals - Physical data organization"
 date: 2022-10-23T20:00:17+05:30
 draft: true
-tags: [database,postgres]
+tags: [database,postgres,internals]
 ---
-
-Materials
-* [Internals book by Egor Rogov (Postgres professional)](https://edu.postgrespro.com/postgresql_internals-14_parts1-4_en.pdf)
-* [InterDB](https://www.interdb.jp/pg/)
-* [Postgres documentation](https://www.postgresql.org/docs/current/catalogs.html)
 
 {{< toc >}}
 
-## System Catalog
-* Keeps all the information related to all the objects in the cluster like databases, tables, indexes, functions etc.
-* Many are common to all the functions
-* They are accessible through SQL and the table names start with `pg_`
-* `oid` - name of the primary key and its type in all the system catalog tables. Internally, it is a 32-bit integer.
-* [Documentation on system catalog tables](https://www.postgresql.org/docs/current/catalogs.html)
-* Why is this needed? It keeps all the metadata associated with the database. It is required for various stages of query execution to look up name of the tables, indexes.
-* Some important catalog tables
-  * `pg_class` - contains information about all the objects in the database.
-  * `pg_database` - contains the list of databases.
-  * `pg_index` - contains information about indices.
-  * `pg_attribute` - contains information about attributes of a relation.
+## Introduction
+This post assumes that you are familiar with Postgresql database, SQL, logical organization of data into database, tables, indexes, schema etc. This is NOT for absolute beginners. I won't be covering how to install, setup, write SQL queries etc. Please consult documentation for that. I also assume that you have a decent knowledge of algorithms and data structures: at least lists, balanced search trees etc.
 
-## Databases and Schemas
-* Database and Schema are **logical** constructs.
-* Schemas are namespaces that store all objects of a database.
-* A database consists of multiple schemas, each containing tables, indexes, types etc.
-* Two objects (like tables) in the same schema don't conflict.
+In this post, I'll be exploring the fascinating details of the physical storage on disk in Postgres. That is - answering how the data is actually stored on-disk and fetched from the disk when you run different SQL queries. Please note that I'm using the development version of Postgres (16 at the time of writing this). It is the summary of various posts on the internet (see [References](#references) section) and also my own exploration of the Postgres source code (written in C and although decades old is very readable!).
 
-![Database logical structure [credits: interdb.jp](https://www.interdb.jp/pg/pgsql01.html)]
+**Note**: Read ["Summary for the impatient"](#summary-for-the-impatient) section if you don't have enough time.
 
-#### [Hands-on] List databases
-```
-suchith=# select oid, datname from pg_database;
-  oid  |  datname  
--------+-----------
-     5 | postgres
- 16389 | suchith
-     1 | template1
-     4 | template0
-```
+**Disclaimer**: I am not a Postgresql expert, but just a developer interested in the internals of the software that I use day in and out. This must not be treated as expert advice or anything close to that. I'll strive to keep it accurate, but there could be some inaccuracies as new releases come out. Please create [github issue](https://github.com/su225/su225.github.io/issues/new) with the link to the post in case you find any inaccuracy or incorrect information.
 
-#### [Hands-on] List schemas
-```
-suchith=# select * from pg_namespace;
-  oid  |      nspname       | nspowner |                            nspacl                             
--------+--------------------+----------+---------------------------------------------------------------
-    99 | pg_toast           |       10 | 
-    11 | pg_catalog         |       10 | {postgres=UC/postgres,=U/postgres}
-  2200 | public             |     6171 | {pg_database_owner=UC/pg_database_owner,=U/pg_database_owner}
- 13224 | information_schema |       10 | {postgres=UC/postgres,=U/postgres}
-(4 rows)
-```
+## Summary for the impatient
+* Think of database as supercharged "on-disk data structures".
 
-#### [Hands-on] Querying for attributes of a relation
-```sql
-SELECT attname, atttypid::regtype,
-  CASE attstorage
-    WHEN 'p' THEN 'plain'
-    WHEN 'e' THEN 'external'
-    WHEN 'm' THEN 'main'
-    WHEN 'x' THEN 'extended'
-  END AS storage
-FROM pg_attribute
-WHERE attrelid = 'employee'::regclass
-  AND attnum > 0;
-```
-* The above query lists only the attributes defined with `CREATE TABLE`. 
-* You can remove `attnum > 0` to see the full list of attributes including `xmax`, `xmin` which are needed to implement Multi-Version Concurrency Control (MVCC).
-* `storage` is related to TOAST (related to how data is stored physically).
+* The directory represented by `PGDATA` environment variable or the `data_directory` in the config supplied at startup.
 
-## Physical database layout
-* `PGDATA` directory consists of directory for each tablespace.
-* Tablespace directory contains directory for each database.
-* Each database directory consists of data files for each of the database objects.
-* Each relation is represented by one or more files, together called **forks**.
-* Each file is divided into minimum I/O blocks (8KB by default) called **page**.
-* Different fork types: main, initialization, free-space-map, visibility-map.
-* `pg_relation_filenode` returns the filenode number for a given relation.
-* `pg_relation_filepath` returns the filepath relative to `PGDATA` directory.
-* Each row must fit a single page. Postgres does not store a row in multiple pages. The contents of long columns are stored in a separate table called **TOAST** tables. TOAST stands for "The Oversized Attributes Storage Technique".
-  * There are several TOAST strategies offering compression.
-  * Pluggable TOAST APIs are also supported.
-  * It limits the key size in the index as only compression is supported.
+* Different objects in postgres like relation ID (tables, indexes, sequences), databases, types etc in the catalog are represented by type called `oid` which is a number.
 
-### Tablespace
-Tablespace is a **physical** construct (A directory in the filesystem). The objects can be distributed across tablespaces depending on the IOPS requirement for the underlying data. When creating tables, the tablespace can be selected.
+* [Tablespace](https://www.postgresql.org/docs/current/manage-ag-tablespaces.html): The `tablespace` is the directory where data objects are stored. This can be used to control the disk layout of the data by the administrator.
 
-List tablespaces
-```
-suchith=# \db+
-                                  List of tablespaces
-    Name    |  Owner   | Location | Access privileges | Options |  Size  | Description 
-------------+----------+----------+-------------------+---------+--------+-------------
- pg_default | postgres |          |                   |         | 29 MB  | 
- pg_global  | postgres |          |                   |         | 531 kB | 
-(2 rows)
-```
+* An **access method** defines how data is accessed. It can be a table or a particular index structure.
 
-Where is data stored? Postgres data directory is defined by `PGDATA`. In my system (Ubuntu), it is in `/var/lib/postgresql/15/main` directory.
-```
-postgres@su225:~/15/main$ ls -l
-total 84
-drwx------ 6 postgres postgres 4096 Dec 19 19:43 base
-drwx------ 2 postgres postgres 4096 Dec 19 19:43 global
-...
-```
-The above command lists even more directories. See [here](https://www.postgresql.org/docs/current/storage-file-layout.html) for what each of those directories mean. 
-* `base` is the tablespace `pg_default` which is used when tablespace is not explicity specified. 
-* `global` contains the files related to global tables like `pg_database`.
+  * All access methods are in `pg_am` table of the catalog.
+    ```
+    =# SELECT * FROM pg_am;
+     oid  | amname |      amhandler       | amtype 
+    ------+--------+----------------------+--------
+        2 | heap   | heap_tableam_handler | t
+      403 | btree  | bthandler            | i
+      405 | hash   | hashhandler          | i
+      783 | gist   | gisthandler          | i
+     2742 | gin    | ginhandler           | i
+     4000 | spgist | spghandler           | i
+     3580 | brin   | brinhandler          | i
+    ``` 
 
-Peeking inside `base` shows the directory for the database. Notice the `oid` corresponds to the OIDs of the databases.
-```
-postgres@su225:~/15/main$ ls -l base
-total 16
-drwx------ 2 postgres postgres 4096 Dec 19 19:41 1
-drwx------ 2 postgres postgres 4096 Dec 19 19:43 16389
-drwx------ 2 postgres postgres 4096 Dec 19 19:38 4
-drwx------ 2 postgres postgres 4096 Dec 19 19:41 5
-```
+  * **heap** - for sequential access of table data. This is where actual data is stored
 
-### Table files and forks
-* All relations are stored in different **forks** each containing a particular type.
-* Files are divided into **pages**
-* A **page** is a minimum amount of data that can be read or written.
-* A **fork** consists of several files.
-  * Initially it is a single file with the filename being numeric oid called **filenode number**.
-  * The file grows and when it hits 1GB, another file of this fork is created, called **segment**.
-  * The sequence number of the segment is appended to the filename.
-* There are different types of forks
-  1. **main** - contains actual data
-  2. **initialization** - for `UNLOGGED` tables where operations on them are not written to the Write-Ahead Log (WAL). During recovery, data in the main fork is replaced by the data in the initialization fork as it is not possible to recover the data without WAL. It is suffixed `_init`
-  3. **freespace-map** - keeps track of available spaces within pages (a file is divided into pages - 8KB by default, although that can be changed during the build time). It is suffixed `_fsm`.
-  4. **visibility-map** - two bits per page. It shows whether vacuuming needs to be performed or frozen. It is suffixed `_vm`.
-* **filenode number** that can be found in `pg_class.relfilenode`.
+  * **btree**(index) - [B-Tree](https://en.wikipedia.org/wiki/B-tree) data structure
 
-#### [Hands-on] Locating data files - `filenode` and `filepath`
-Let us create a table and locate its files
-```sql
-CREATE TABLE employee (
-  id INT PRIMARY KEY,
-  name VARCHAR(50)
-);
-```
-It is created in the default tablespace, in the default database for the user. Hence, its data goes in `$PGDATA/base/16389`. Then we lookup its `oid` and filenode number using the following query
-```
-suchith=# select oid, relname, reltype, relfilenode from pg_class where relname = 'employee';
-  oid  | relname  | reltype | relfilenode 
--------+----------+---------+-------------
- 16390 | employee |   16392 |       16390
-(1 row)
-```
-Now checking in the directory
-```
-$ ls -l base/16389/16390
--rw------- 1 postgres postgres 0 Dec 19 21:05 base/16389/16390
-```
+  * **hash**(index) - Hash table implementation. See [Documentation](https://www.postgresql.org/docs/current/hash-index.html)
 
-This can also be found out as follows
-* Finding `filepath` relative to `PGDATA` directory
-```
-suchith=# select pg_relation_filepath('employee');
- pg_relation_filepath 
-----------------------
- base/16389/16390
-(1 row)
-```
-* Finding `filenode` within the `<tablespace>/<database-oid>` directory
-```
-suchith=# select pg_relation_filenode('employee');
- pg_relation_filenode 
-----------------------
-                16390
-(1 row)
-```
+  * **GiST**(index) - Generalized search tree to implement arbitrary indexing schemes (B-Tree, R-Tree are specific examples). See [documentation](https://www.postgresql.org/docs/current/gist-intro.html)
 
-## TOAST for long attributes
-* TOAST is for storing attributes which are long and don't fit in a page.
-* Postgres tries to fit at least 4 tuples in a page. If the tuple does not fit, then some rows are moved to the TOAST table. The threshold is `2000B` by default, but can be redefined at the table level using `toast_tuple_target` storage parameter.
-* TOAST tables are usually hidden and reside in a separate schema called `pg_toast`.
-* Recursive "TOAST" is not supported.
-* TOAST table for a relation is in `pg_class.reltoastrelid`.
-* TOAST table increases the minimum number of fork files used by the table up to 8.
-  * 3 for the table.
-  * 3 for the TOAST table.
-  * 2 for the TOAST index.
+  * **Gin**(index) - Generalized Inverted Index. It stores `(key, posting list)` pairs where a posting list is a set of row IDs in which the key occurs. Internally, it is a B-Tree index constructed over keys. See [Documentation](https://www.postgresql.org/docs/current/gin-intro.html)
 
-| TOAST strategy| Code | Description |
-|---------------|------|-------------|
-| plain | p | TOAST strategy is not used |
-| extended | x | Allows both compressing attributes and storing them in a separate TOAST table |
-| external | e | Long attributes are stored in the TOAST table in an uncompressed state |
-| main | m | Long attributes are compressed first and they will be moved to the TOAST table only if the compression does not help |
+  * **Brin**(index) - Block Range Index. It is for handling very large tables where the for a range of values for a key, the rows also reside in physically adjacent pages. Something like - "all keys starting with A reside in pages 1-100". This way, when "A" is encountered, we don't have to look for pages beyond 100. Here 1-100 is the "block range" for "A" 
 
-### When is it stored in the TOAST table?
-1. Go through the attributes with external and extended strategies, starting with the longest ones. Extended attributes get compressed and if the resulting value exceeds 1/4th of the page then it is moved to the TOAST table straight away. External attributes are handled in the same way, but without compression.
-2. If the row does not fit in the page after the first pass, then we move the remaining attributes that use external or extended strategies into the TOAST table.
-3. If that does not help, then compress the attributes that use the "main" strategy and keep them in the table page.
-4. If the row is still not short enough, the main attributes are moved into the TOAST table.
+  * **SP-GiST**(index) - Space-partitioned GiST for non-balanced data structures like [Quad-Tree](https://en.wikipedia.org/wiki/Quadtree), [k-d tree](https://en.wikipedia.org/wiki/K-d_tree), [radix trees](https://en.wikipedia.org/wiki/Radix_tree)
 
-### Illustration of TOAST table in action
-1. Create a table called `toasttest` for testing
-```sql
-CREATE TABLE toasttest(
-  a INTEGER,
-  b NUMERIC,
-  c TEXT,
-  d JSON
-);
-```
-2. Check the storage type with the query mentioned before
-```sql
-SELECT attname, atttypid::regtype, attstorage
-FROM pg_attribute
-WHERE attrelid = 'toasttest'::regclass
-  AND attnum > 0;
-```
-It displays the following
-```
- attname | atttypid | attstorage 
----------+----------+------------
- a       | integer  | p
- b       | numeric  | m
- c       | text     | x
- d       | json     | x
-(4 rows)
-```
-3. You can change the storage type as follows
-```sql
-ALTER TABLE toasttest
-  ALTER COLUMN d SET STORAGE external;
-```
-Then run the query on `pg_attribute` again
-```
- attname | atttypid | attstorage 
----------+----------+------------
- a       | integer  | p
- b       | numeric  | m
- c       | text     | x
- d       | json     | e
-(4 rows)
-```
-4. When the table is created, it also creates TOAST table automatically. This is because there are 3 potentially long attributes - b, c, d. If at least one attribute is potentially long, then postgres creates a TOAST table right away during table creation.
-```sql
-SELECT relnamespace::regnamespace, relname
-FROM pg_class
-WHERE oid = (
-  SELECT reltoastrelid
-  FROM pg_class
-  WHERE relname = 'toasttest'
-);
-```
-Toast table
-```
- relnamespace |    relname     
---------------+----------------
- pg_toast     | pg_toast_16395
-(1 row)
-```
-4.a. Peek into its structure
-```
-\d+ pg_toast.pg_toast_16395
+* **HOT optimization** - Indexes cause **write amplification** and decrease the write throughput. If the column updated is not indexed, then we might still create new index entry pointing to the correct version. If the updated tuple is also in the same page, then "Heap-Only Tuple" optimization does not create a new index entry, but instead updates the tuple representing the previous version of the tuple to point to the next version forming a chain within the same page. This saves a few writes, but at the cost of complexity in the vacuuming process where the pointer to the dead, but indexed tuple cannot be freed immediately.
 
-TOAST table "pg_toast.pg_toast_16395"
-   Column   |  Type   | Storage 
-------------+---------+---------
- chunk_id   | oid     | plain
- chunk_seq  | integer | plain
- chunk_data | bytea   | plain
-Owning table: "public.toasttest"
-Indexes:
-    "pg_toast_16395_index" PRIMARY KEY, btree (chunk_id, chunk_seq)
-Access method: heap
-```
-4.b. Check the corresponding TOAST index
-```sql
-SELECT indexrelid::regclass
-FROM pg_index
-WHERE indrelid = (
-  SELECT oid
-  FROM pg_class
-  WHERE relname = 'pg_toast_16395'
-);
-```
-Which gives
-```
-          indexrelid           
--------------------------------
- pg_toast.pg_toast_16395_index
-(1 row)
-```
-4.c. Peeking into the index
-```
-\d+ pg_toast.pg_toast_16395_index
-              Index "pg_toast.pg_toast_16395_index"
-  Column   |  Type   | Key? | Definition | Storage | Stats target 
------------+---------+------+------------+---------+--------------
- chunk_id  | oid     | yes  | chunk_id   | plain   | 
- chunk_seq | integer | yes  | chunk_seq  | plain   | 
-primary key, btree, for table "pg_toast.pg_toast_16395"
-```
+* **Fork** - A relation (table or index) is stored in **a set of files** within a tablespace called fork
+  * **main** - where actual data is stored.
 
-5. Now insert a long value for attribute `c` with the same character repeated multiple times. As `attstorage` is `extended`, postgres first tries to compress to see if it fits in the same page. In this case, it does and no toast record should be created. This stops at step (1) of the TOAST algorithm mentioned before.
-```
-suchith=# INSERT INTO toasttest VALUES (10, 5.5, repeat('A',10000), '{}');
-INSERT 0 1
+  * **free-space map** - to locate a page with sufficient free space for a tuple.
 
-suchith=# SELECT * FROM pg_toast.pg_toast_16395;
- chunk_id | chunk_seq | chunk_data 
-----------+-----------+------------
-(0 rows)
+  * **visibility map** - to check if all tuples in a page are "frozen" or "visible" (for implementing MVCC)
 
-```
-Although `c` is 10,000 characters long (which is more than a page), it can be compressed easily as characters are repetitive. However, when characters are random, this cannot be done. Hence, the value of the attribute would be moved to the corresponding TOAST table.
+* **Page** - A fixed block (by default, 8KB) in a file. It is the unit of I/O. Each page consists of header, pointers and tuples. A tuple can represent data in case of "heap" (or actual table data) or a pointer to data in a heap (in case of indexes). A tuple is not the same as the row.
 
-6. Now insert a long random string which is hard to compress. This should be seen in the TOAST table.
-```sql
-INSERT INTO toasttest VALUES (
-  20,
-  8.7,
-  -- generates a string of length 8000 with random uppercase characters.
-  -- 65 is the ASCII code of 'A' and random() generates a uniformly random
-  -- number between 0 and 1. trunc() truncates the output to some decimal
-  -- digits (0 if it is not specified). chr() converts number to the corresponding
-  -- character in the defined encoding. string_agg() joins strings according to
-  -- the given delimiter: here just blank. generate_series() generates rows from
-  -- [start,stop]: this is like range() function in python.
-  (SELECT string_agg(chr(trunc(65+random()*26)::integer), '')
-   FROM generate_series(1,8000)),
-  '{}'
-);
+* **Binary storage format** - The data is stored and loaded as is, **without any serialization/deserialization** overhead. This means in-memory and on-disk formats are the same. But this means compatibility concerns - details like endianness (Big/Little), data alignment matters.
+
+* **Tuple** - It can be actual data stored by the user or pointer to user data in an index. It also consists of additional fields like `xmin`, `xmax` which are required for implementing Multi-Version Concurreny Control (MVCC). **A tuple must fit in a page**. Attributes with long tuples could be stored separately and this is called [TOAST](https://www.postgresql.org/docs/current/storage-toast.html).
+
+* **Buffer cache** - In-memory, shared (between different Postgres sub-processes running transactions etc) memory to avoid hitting the disk. Internally, it is an LRU cache implemented as a hash table.
+
+* **MVCC** - This is required for implementing certain isolation levels where each transaction would be working on a "certain snapshot/version of the database". Hence...The tables are [persistent data structures](https://en.wikipedia.org/wiki/Persistent_data_structure) on disk - i.e modifying/deleting data creates "new snapshot/version" of the table with the changes applied and transactions working on old version can proceed in many cases. This also enables querying on a snapshot. But...storing all versions wastes a lot of space and outdated tuples must be **garbage collected**.
+
+* The **garbage collection** where old tuples are removed and the space used by them are reclaimed is called **Vacuuming**. [Autovacuum](https://www.postgresql.org/docs/current/runtime-config-autovacuum.html) is where this is automated. This is analogous to reclaiming unreachable memory in Garbage collected languages like Java, Golang etc. Hence, this also has similar issues like eating up CPU, kind of stop-the-world pauses (called `VACUUM FULL`).
+
+* **Freezing** tuples is necessary to preserve MVCC semantics in the face of transaction ID wraparound. If freezing is not in-time, then the only option is to stop accepting writes and vacuum the table, which means downtime.
+
+* **TOAST** is used to store long attributes that don't fit into a page. Depending on the configuration, Postgres can try to compress or store in uncompressed format. TOAST table is largely invisible to the user while querying and is created transparently. Nevertheless, the toast table associated with a relation can be found in `pg_class` table's `reltoastrelid` attribute. The particular TOAST strategy of a column can be found out by looking up `pg_attribute` table's `attstorage` attribute. Also note that reading a TOASTed attribute might cause **read amplication** as Postgres has to read a different table to serve the request. Different TOAST strategies
+  * `p:PLAIN` - no compression or out-of-line storage. No toasting here.
+  * `x:EXTENDED`(mostly default) - allows compression and storing in TOAST table. First compress and then move to TOAST table if the data is big.
+  * `e:EXTERNAL` - does not allow compression, but allows storing in TOAST table. It is fast if the data is searched for substrings as only the chunks required can be looked up unlike `EXTENDED` strategy where the entire data has to be fetched, decompressed before such queries.
+  * `m:MAIN` - compression, but out-of-line storage in TOAST table is only done as last resort.
+
+## Setting up the source code for reading
+I am running Linux (Ubuntu LTS to be more precise)
+
+Requirements (not an exhaustive list)
+* VSCode or your favorite IDE - for browsing through the source code with C/C++ plugins and interactive debugging sessions.
+* GDB - for debugging: setting breakpoints, walking through the code. Make sure to set these options as Postgresql uses **multi-process architecture**.
+  * `detach-on-fork off`: Don't detach the child process from the debugger so that we can debug child processes. This is important as connecting to the database server with `psql`, autovacuum and WAL writer as separate processes. Even transactions run as separate processes.
+  * `follow-exec-mode new`: Follow the child process in case `exec()` is run.
+
+Run `configure` script with the flags to enable debugging and assertions. I am setting custom prefix so that we can install it safely to the directory specified. It is important in case you already have a released version of Postgresql installed. Add `out` folder to `.git/info/exclude` to exclude it from git without changing `.gitignore`.
+```sh
+./configure --prefix="$(pwd)/out" \
+			--enable-debug
+			--enable-cassert
 ```
-7. Now, we will check the corresponding TOAST table
-```sql
-SELECT chunk_id, chunk_seq, pg_column_size(chunk_data)
-FROM pg_toast.pg_toast_16395;
+The build and install as follows
+```sh
+make
+make install
 ```
-It shows
-```
- chunk_id | chunk_seq | pg_column_size 
-----------+-----------+----------------
-    16400 |         0 |           2000
-    16400 |         1 |           2000
-    16400 |         2 |           2000
-    16400 |         3 |           2000
-    16400 |         4 |             20
-(5 rows)
-```
-* `chunk_id` is the same for all of them indicating that all the chunks are part of the same attribute value. 
-* `chunk_seq` is for ordering the chunks within the same `chunk_id`.
-* `chunk_data` contains the actual data.
-* `pg_column_size` function shows the size of the column in bytes. This is used here for illustration purposes as the actual data is very long.
+Simple...Isn't it?
+
+## References
+1. [Internals book by Egor Rogov (Postgres professional)](https://edu.postgrespro.com/postgresql_internals-14_parts1-4_en.pdf) - Highly recommend this.
+1. [interdb.jp - Also explores storage internals](https://www.interdb.jp/pg/)
+1. [Postgres documentation](https://www.postgresql.org/docs/current/catalogs.html)
+1. [Fighting PostgreSQL write amplification with HOT updates - Adyen blog](https://www.adyen.com/blog/postgresql-hot-updates)
+1. [Transaction ID wraparound in Postgres - sentry.io blog](https://blog.sentry.io/2015/07/23/transaction-id-wraparound-in-postgres/)
