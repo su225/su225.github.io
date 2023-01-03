@@ -211,19 +211,22 @@ So..We can now answer the question of how postgres figures out which file to pic
 
 So...Finally, we have `<pg_tblspc>/<tblspc_oid>/<pg_version>/<db_oid>/<relfilenode>`. There is more to this because a relation is actually a set of files called **segments** which, by default, is a 1GB chunk. So suffixes like `_1`, `_2` should be added to get the actual file. The file picked further depends on the **block number**. A **block** is a fundamental I/O unit (default: 8KB).
 
-### Files and Forks
+### Forks and Files
+In the previous section, we saw how Postgresql maps a table name to a set of files residing in some directory. These set of files representing a table or an index (or materialized views) is called **fork**. The **main fork** contains data and the rest contain the information necessary for certain performance optimizations. A file is called a **segment** and by default, it is 1GB due to historical reasons. However, it can be customized with `--with-segsize` while building postgresql from source.
 
-#### Main fork
+Each segment is divided into 8KB blocks called **pages**. A page is a unit of disk I/O in Postgresql. That is, data is written and read into the buffer cache or written to the disk in units of a page even if only small portions of it change. Note that disk I/O is expensive. So..Postgresql has to reduce this I/O by batching, while also providing durability. That's where Write-Ahead Log helps (there are many other reasons why WAL is used - with the most important being recovery).
 
-#### Free-space map fork (_fsm)
+Fork types are as follows
+* **main** - contains actual data. The data inserted with `INSERT` resides in these files. They don't have a suffix.
 
-#### Visibility map fork (_vm)
+* **free-space map (FSM)** - contains approximate information on the free space information per-page. This helps postgres to quickly decide where to store the tuple on `INSERT` and `UPDATE` commands. Otherwise, the worst case would be going through each of the segment files and scanning pages for free-space which is terrible for performance. The files have `_fsm` suffix.
 
-#### Initialization fork (_init)
+* **visibility map (VM)** - contains information on whether all tuples in a page are visible to all transactions or all are "frozen" (visible, but very old tuples). The MVCC implementation can skip evaluating visibility rules for the page if the bits are set. The files have `_vm` suffix.
 
-### File segments
+There is one more type called **initialization fork** which is used with "unlogged tables". Please look up the documentation [here](https://www.postgresql.org/docs/current/storage-init.html) and I have mentioned it only for completeness.
 
 ### Page layout
+
 
 ### Tuple layout
 TODO:
@@ -232,6 +235,12 @@ TODO:
 3. How toasted attributes look like?
 
 ### Line pointers and types
+### Fork layouts
+#### Main fork
+
+#### Free-space map fork (_fsm)
+
+#### Visibility map fork (_vm)
 
 ### HOT optimization
 
