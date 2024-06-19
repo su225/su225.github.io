@@ -1,31 +1,55 @@
 baseURL = 'https://su225.github.io/'
 languageCode = 'en-us'
-title = 'Tech notes'
-theme = 'beautifulhugo'
+title = "Suchith's blog"
+theme = "typo"
 enableRobotsTXT = true
 
-[Author]
-    name = "Suchith J N"
-    github = "su225"
-    linkedin = "suchithjn"
+[taxonomies]
+tag = 'tags'
+
+[params]
+theme = 'dark'
+homeIntroTitle = "Welcome to my blog"
+homeIntroContent = """
+I am a software engineer living in Amsterdam, the Netherlands. Currently,
+I work as a backend developer. I am interested in distributed systems, databases,
+systems programming and performance related stuffs.
+"""
+
+homeCollectionTitle = 'Posts'
+homeCollection = 'posts'
+paginationSize = 100
+listDateFormat = '2 Jan 2006'
+breadcrumbs = true
+
+[params.author]
+name = "Suchith J N"
+
+[[params.social]]
+name = "github"
+url = "https://github.com/su225"
+
+[[params.social]]
+name = "linkedin"
+url = "https://in.linkedin.com/in/suchithjn"
+
+[[params.menu]]
+name = "home"
+url = "/"
+
+[[params.menu]]
+name = "posts"
+url = "/posts"
+
+[[params.menu]]
+name = "about"
+url = "/about"
 
 [markup]
     [markup.highlight]
-        lineNos = true
-        style = 'xcode-dark'
-        anchorlinenos = true
+    style = 'dracula'
     
     [markup.tableOfContents]
-        ordered = false
-        startLevel = 2
-        endLevel = 10
-
-[[menu.main]]
-    name = "Blog"
-    url = ""
-    weight = 1
-
-[[menu.main]]
-    name = "About"
-    url = "/about"
-    weight = 3
+    ordered = false
+    startLevel = 2
+    endLevel = 10
