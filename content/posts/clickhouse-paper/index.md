@@ -1,7 +1,6 @@
 ---
 title: "Paper notes: Clickhouse - Lightning Fast Analytics for Everyone"
 date: 2024-09-14T20:00:17+05:30
-draft: true
 tags: [database,paper-notes]
 ---
 
@@ -40,33 +39,40 @@ Each table is organized as a collection of **immutable** "parts". A part is self
 ### Parts, Blocks, Granules
 ![Column file organization](./images/column-file-organization.svg)
 
-* Part corresponds to a filesystem directory, usually containing **one file per column**
-* Rows within a part are further divided into groups of 8192 records, called **Granules**
-* **Blocks** are basic read/write unit and consist of multiple **Granules**
-    * Several neighboring granules are combined to form a block which is around 1MB by default
-    * The number of blocks in the Granule is variable and depends on the column's data type and
-      the distribution of values. For instance, it is possible to have fewer granules in a block
-      if the column consists of lots of long strings because each value of the column takes up
-      more space.
-    * Smallest unit which is compressed. Various compression algorithms like LZ4, Gorilla, FPC
-      (for floating-point data) are used and multiple algorithms can be chained.
-    * Scan and index lookup operators process granule level. But the actual read/write of the
-      table column files happen at the block level.
-* Enabling random access to granules despite compression
-    * Maintain granule ID to offset of the block in the compressed table file
-    * Maintain granule offset within the uncompressed block
+1. Part corresponds to a filesystem directory, usually containing **one file per column**
+1. Rows in a part are divided into groups of 8192 records, called **Granules**
+1. **Blocks** are basic read/write unit and consist of multiple Granules
+    1. Several neighboring granules are combined to form a block (~1MB by default)
+    1. The number of blocks in the Granule is variable and depends on the column's data type and
+      the distribution of values.
+    1. Smallest unit which is compressed. Various compression algorithms like [LZ4](https://en.wikipedia.org/wiki/LZ4_(compression_algorithm)), [Gorilla](https://www.vldb.org/pvldb/vol8/p1816-teller.pdf), [FPC](https://www.oden.utexas.edu/media/reports/2008/0821.pdf)
+      (for floating-point data) can be configured and multiple algorithms can be chained.
+1. Enabling random access to granules (required for query processing)
+    1. Maintain granule ID to offset of the block in the compressed table file
+    1. Maintain granule offset within the uncompressed block
 
-### Special encoding of columns
-* Enabling dictionary encoding with a special wrapper type `LowCardinality(T)` for the columns
+**Special encoding of columns**
+* Enabling [dictionary encoding](https://facebookincubator.github.io/velox/develop/dictionary-encoding.html) with a special wrapper type `LowCardinality(T)` for the columns
   where the number of values is low. Dictionary encoding replaces the values with integers to
   reduce the size of the column and to enable better compression in the block compression step
-
-TODO: Show dictionary encoding in picture
 
 * The `Nullable(T)` type adds an internal bitmap to column T to compactly represent NULL values.
   This is a common trick in the database engines for space-efficient NULL value storage.
 
-TODO: Show nullable bitmap in picture
+### Pruning strategies
+Additional data structures are created to efficiently skip and narrow down the granules (smallest unit of query processing) to be processed.
+
+#### Sparse index of primary key to granule
+Map keyed by the value of the first row of the granule of primary key column to the granule ID. This index is sparse and can easily fit into memory. One entry addresses 8192 rows and hence 1000 entries are enough to address ~8.1 million rows and hence easily fits in memory.
+
+#### Skipping indexes
+Store small amounts of metadata at the level of multiple granules (configurable) to allow skipping whole granules or blocks altogether (saves disk I/O and subsequent processing)
+
+| Index type | Description |
+|------------|-------------|
+| Min-max indexes | store minimum and maximum values for the range |
+| Set indexes | store the set of values in the index block. Good when the cardinality is small and bounded |
+| Bloom filter | approximate version of set indexes (with configurable false positive rate) |
 
 ### Merging different parts
 For efficient query processing, the number of parts have to be kept small to avoid jumping around. Like many LSM tree implementations, there is a background worker responsible for merging the parts into bigger ones until it hits some maximum size. Clickhouse supports different methods
@@ -104,26 +110,18 @@ The replication log is stored in a cluster of Clickhouse Keeper nodes. Like many
 
 ![Query processing parallelization](./images/query-processing-parallelization.png)
 
-"Lightning fast analytics" would require super-fast query processing. At a high level (and also based on the data structures described in the physical storage layer), it works as follows
-1. Distribute query processing to multiple nodes
-1. Within each node
-    1. Narrow down the table parts to be processed
-    1. Use pruning mechanisms like different types of skip indexes
-    1. Only read the blocks/granules necessary
-    1. Divide into **data chunks** and use multiple cores to process through them
-    1. Process the rows with **SIMD** wherever possible
+For fast query processing, it is important to maximize resource utilization. Three levels are parallelization are described
+1. **SIMD vectorization**: Scanning multiple rows at once
+1. **Multi-core parallelization**: Data chunks are processed in-parallel by multiple worker threads (usually one per core). This is the most complex part as it also involves rebalancing the workload between the workers at each stage of the plan execution.
+1. **Multi-node parallelization**: Table shards are processed in-parallel by multiple nodes containing data for the shards
 
-### Pruning strategies
-Additional data structures are created to efficiently skip and narrow down the granules (smallest unit of query processing) to be processed.
-
-#### Sparse index of primary key to granule
-Map keyed by the value of the first row of the granule of primary key column to the granule ID. This index is sparse and can easily fit into memory. One entry addresses 8192 rows and hence 1000 entries are enough to address ~8.1 million rows and hence easily fits in memory.
-
-#### Skipping indexes
-Store small amounts of metadata at the level of multiple granules (configurable) to allow skipping whole granules or blocks altogether (saves disk I/O and subsequent processing)
-
-| Index type | Description |
-|------------|-------------|
-| Min-max indexes | storing minimum and maximum values for the range covered by the index |
-| Set indexes | storing the set of values in the index block. Good when the cardinality is small and bounded |
-| Bloom filter | can be created by a configurable false positive rate. As bloom filters are compact, they can be loaded into memory and can be checked to determine if the queried key definitely does NOT exist |
+### Performance optimizations
+1. Query optimization techniques described in the database literature
+    1. Constant folding and scalar extraction
+    1. Filter pushdown to decrease the number of queries flowing upwards
+    1. Reordering function evaluation and sorting steps
+    1. Join order determination based on column statistics
+1. Fusing adjacent plan operators by query compilation with LLVM
+1. Primary key index evaluation if the subset of the `WHERE` clause form the prefix of the primary key.
+1. Data skipping with the pruning data structures
+1. Hash table parameter selection
