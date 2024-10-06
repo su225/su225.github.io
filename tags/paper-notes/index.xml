@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Paper-Notes on Suchith's blog</title><link>https://su225.github.io/tags/paper-notes/</link><description>Recent content in Paper-Notes on Suchith's blog</description><generator>Hugo</generator><language>en-us</language><lastBuildDate>Sat, 14 Sep 2024 20:00:17 +0530</lastBuildDate><atom:link href="https://su225.github.io/tags/paper-notes/index.xml" rel="self" type="application/rss+xml"/><item><title>Paper notes: Clickhouse - Lightning Fast Analytics for Everyone</title><link>https://su225.github.io/posts/clickhouse-paper/</link><pubDate>Sat, 14 Sep 2024 20:00:17 +0530</pubDate><guid>https://su225.github.io/posts/clickhouse-paper/</guid><description>&lt;p>&lt;a href="https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf">Link to the VLDB paper&lt;/a>&lt;/p>
+&lt;div class="toc">
+ &lt;h2>Contents&lt;/h2>
+ &lt;nav id="TableOfContents">
+ &lt;ul>
+ &lt;li>&lt;a href="#summary">Summary&lt;/a>&lt;/li>
+ &lt;li>&lt;a href="#physical-storage-layer-mergetree-table-engine">Physical storage layer: MergeTree table engine&lt;/a>
+ &lt;ul>
+ &lt;li>&lt;a href="#parts-blocks-granules">Parts, Blocks, Granules&lt;/a>&lt;/li>
+ &lt;li>&lt;a href="#pruning-strategies">Pruning strategies&lt;/a>
+ &lt;ul>
+ &lt;li>&lt;a href="#sparse-index-of-primary-key-to-granule">Sparse index of primary key to granule&lt;/a>&lt;/li>
+ &lt;li>&lt;a href="#skipping-indexes">Skipping indexes&lt;/a>&lt;/li>
+ &lt;/ul>
+ &lt;/li>
+ &lt;li>&lt;a href="#merging-different-parts">Merging different parts&lt;/a>&lt;/li>
+ &lt;li>&lt;a href="#table-partitioning-across-nodes">Table partitioning across nodes&lt;/a>&lt;/li>
+ &lt;li>&lt;a href="#table-projections">Table projections&lt;/a>&lt;/li>
+ &lt;/ul>
+ &lt;/li>
+ &lt;li>&lt;a href="#data-replication">Data Replication&lt;/a>&lt;/li>
+ &lt;li>&lt;a href="#query-processing">Query processing&lt;/a>
+ &lt;ul>
+ &lt;li>&lt;a href="#performance-optimizations">Performance optimizations&lt;/a>&lt;/li>
+ &lt;/ul>
+ &lt;/li>
+ &lt;/ul>
+&lt;/nav>
+&lt;/div>
+&lt;h2 id="summary">Summary&lt;/h2>
+&lt;ul>
+&lt;li>Distributed, analytical database optimized for high ingestion rates&lt;/li>
+&lt;li>Besides horizontal scalability, all major decisions revolve around
+&lt;ol>
+&lt;li>High data ingestion rates&lt;/li>
+&lt;li>Fast query execution&lt;/li>
+&lt;/ol>
+&lt;/li>
+&lt;/ul>
+&lt;p>
+
+
+
+
+
+
+
+
+
+
+&lt;figure class="">
+
+ &lt;div>
+ &lt;img loading="lazy" alt="High-level architecture (from section-2)" src=" ./images/architecture-section-2.png">
+ &lt;/div>
+
+ 
+&lt;/figure>
+From section-2 of the paper&lt;/p></description></item></channel></rss>

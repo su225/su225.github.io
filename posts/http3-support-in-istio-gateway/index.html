@@ -1,5 +1,5 @@
 <!doctype html><html lang=en-us dir=ltr><head><meta charset=utf-8><meta name=viewport content="width=device-width"><meta name=description content><title>Supporting HTTP/3 at the ingress gateway in Istio | Suchith's blog
-</title><link rel=stylesheet href=/assets/combined.min.f69b4a5b91a9bc416804eda1f19d04210551b843d47318bf1913d7edce1504fb.css media=all></head><body class=dark><div class=content><header><div class=header><h1 class=header-title>Suchith's blog</h1><div class=flex><p class=small><a href=/>/home</a></p><p class=small><a href=/posts>/posts</a></p><p class=small><a href=/about>/about</a></p></div></div></header><main class=main><div class=breadcrumbs><a href=/>Home</a>
+</title><link rel=stylesheet href=/assets/combined.min.f69b4a5b91a9bc416804eda1f19d04210551b843d47318bf1913d7edce1504fb.css media=all></head><body class=light><div class=content><header><div class=header><h1 class=header-title>Suchith's blog</h1><div class=flex><p class=small><a href=/>/home</a></p><p class=small><a href=/posts>/posts</a></p><p class=small><a href=/about>/about</a></p></div></div></header><main class=main><div class=breadcrumbs><a href=/>Home</a>
 <span class=breadcrumbs-separator>> </span><a href=/posts/>Posts</a>
 <span class=breadcrumbs-separator>> </span><a class=breadcrumbs-current href=/posts/http3-support-in-istio-gateway/>Supporting HTTP/3 at the ingress gateway in Istio</a></div><div><div class=single-intro-container><h1 class=single-title>Supporting HTTP/3 at the ingress gateway in Istio</h1><p class=single-readtime><time datetime=2021-10-23T20:00:17+05:30>October 23, 2021</time></p></div><div class=single-content><p>A few months ago I contributed experimental HTTP/3 support at the Istio ingress gateway
 (<a href=https://github.com/istio/istio/pull/33817>PR</a>). For the HTTPS gateway
@@ -12,342 +12,181 @@ standardized (There is an IETF draft <a href=https://datatracker.ietf.org/doc/ht
 So creating custom builds, turning on alpha features are expected. I&rsquo;m running Linux.</p><h3 id=kubernetes>Kubernetes</h3><p>This feature requires the supporting both TCP and UDP on the same port at the gateway. By
 default for Kubernetes services of type <code>LoadBalancer</code> this is not allowed. Since Kubernetes
 1.20 there is alpha support. As documented <a href=https://kubernetes.io/docs/concepts/services-networking/service/#load-balancers-with-mixed-protocol-types>here</a>, it can be turned on with <code>MixedProtocolLBSupport</code>
-feature gate.</p><p>For this demo, I use Kind to provision a cluster with the following config</p><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 4
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 5
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 6
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 7
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 8
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 9
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">10
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">11
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">12
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">13
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">14
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">15
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">16
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">17
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">18
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yaml data-lang=yaml><span style=display:flex><span>kind: Cluster
-</span></span><span style=display:flex><span>apiVersion: kind.x-k8s.io/v1alpha4
-</span></span><span style=display:flex><span>featureGates:
-</span></span><span style=display:flex><span>  MixedProtocolLBService: <span style=color:#fc5fa3>true</span> <span style=color:#6c7986># Very important</span>
-</span></span><span style=display:flex><span>kubeadmConfigPatches:
-</span></span><span style=display:flex><span>- |<span style=color:#fc6a5d>
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d>  apiVersion: kubeadm.k8s.io/v1beta2
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d>  kind: ClusterConfiguration
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d>  metadata:
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d>    name: config
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d>  apiServer:
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d>    extraArgs:
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d>      &#34;service-account-issuer&#34;: &#34;kubernetes.default.svc&#34;
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d>      &#34;service-account-signing-key-file&#34;: &#34;/etc/kubernetes/pki/sa.key&#34;</span>  
-</span></span><span style=display:flex><span>containerdConfigPatches:
-</span></span><span style=display:flex><span>  - |-<span style=color:#fc6a5d>
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d>    [plugins.&#34;io.containerd.grpc.v1.cri&#34;.registry.mirrors.&#34;localhost:5000&#34;]
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d>      endpoint = [&#34;http://kind-registry:5000&#34;]</span>    
-</span></span></code></pre></td></tr></table></div></div><p>For the load balancer support, I&rsquo;m using <a href=https://metallb.universe.tf/>MetalLB</a> with the following configuration.
+feature gate.</p><p>For this demo, I use Kind to provision a cluster with the following config</p><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yaml data-lang=yaml><span style=display:flex><span><span style=color:navy>kind</span>:<span style=color:#bbb> </span>Cluster<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>apiVersion</span>:<span style=color:#bbb> </span>kind.x-k8s.io/v1alpha4<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>featureGates</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>MixedProtocolLBService</span>:<span style=color:#bbb> </span><span style=color:#000;font-weight:700>true</span><span style=color:#bbb> </span><span style=color:#998;font-style:italic># Very important</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>kubeadmConfigPatches</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span>- |<span style=color:#d14>
+</span></span></span><span style=display:flex><span><span style=color:#d14>  apiVersion: kubeadm.k8s.io/v1beta2
+</span></span></span><span style=display:flex><span><span style=color:#d14>  kind: ClusterConfiguration
+</span></span></span><span style=display:flex><span><span style=color:#d14>  metadata:
+</span></span></span><span style=display:flex><span><span style=color:#d14>    name: config
+</span></span></span><span style=display:flex><span><span style=color:#d14>  apiServer:
+</span></span></span><span style=display:flex><span><span style=color:#d14>    extraArgs:
+</span></span></span><span style=display:flex><span><span style=color:#d14>      &#34;service-account-issuer&#34;: &#34;kubernetes.default.svc&#34;
+</span></span></span><span style=display:flex><span><span style=color:#d14>      &#34;service-account-signing-key-file&#34;: &#34;/etc/kubernetes/pki/sa.key&#34;</span><span style=color:#bbb>  
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>containerdConfigPatches</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span>- |-<span style=color:#d14>
+</span></span></span><span style=display:flex><span><span style=color:#d14>    [plugins.&#34;io.containerd.grpc.v1.cri&#34;.registry.mirrors.&#34;localhost:5000&#34;]
+</span></span></span><span style=display:flex><span><span style=color:#d14>      endpoint = [&#34;http://kind-registry:5000&#34;]</span><span style=color:#bbb>    
+</span></span></span></code></pre></div><p>For the load balancer support, I&rsquo;m using <a href=https://metallb.universe.tf/>MetalLB</a> with the following configuration.
 For setup and usage instructions, please refer to their documentation.</p><h3 id=curl>cURL</h3><p>Testing the setup requires support for <code>--http3</code> flag. If it is not supported out of the box,
 then you have to build it with Cloudflare Quiche support as documented <a href=https://github.com/curl/curl/blob/master/docs/HTTP3.md>here</a>.</p><h3 id=istio>Istio</h3><p>As of writing this Istio 1.12 is not yet released. So the pilot and proxy images should be
-built from the master branch.</p><h2 id=setup>Setup</h2><p>Demo setup consists of</p><ol><li>Setting up Istio</li><li>Deploying httpbin application</li><li>Setting up gateway TLS certificates</li><li>Configuring ingress gateway</li></ol><p>Here is the demo setup<figure><div><img loading=lazy alt=Setup src=images/setup.png></div></figure></p><h3 id=setting-up-istio>Setting up Istio</h3><p>There are two important things</p><ol><li>Set <code>PILOT_ENABLE_QUIC_LISTENERS</code> environment variable to <code>true</code> on <strong>Istiod</strong> to turn on generating HTTP/3 mirror listener on the gateway</li><li>Exposing both 443/UDP and 443/TCP - <strong>same port, different transport protocol</strong></li></ol><p>Here is an example <code>IstioOperator</code> spec.</p><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 4
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 5
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 6
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 7
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 8
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 9
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">10
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">11
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">12
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">13
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">14
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">15
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">16
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">17
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">18
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">19
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">20
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">21
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">22
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">23
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">24
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">25
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">26
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">27
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">28
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">29
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">30
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">31
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">32
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">33
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">34
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">35
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">36
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yaml data-lang=yaml><span style=display:flex><span>apiVersion: install.istio.io/v1alpha1
-</span></span><span style=display:flex><span>kind: IstioOperator
-</span></span><span style=display:flex><span>metadata:
-</span></span><span style=display:flex><span>  name: install
-</span></span><span style=display:flex><span>spec:
-</span></span><span style=display:flex><span>  <span style=color:#6c7986># Replace HUB and TAG to point to your</span>
-</span></span><span style=display:flex><span>  <span style=color:#6c7986># image repository and the custom image tag</span>
-</span></span><span style=display:flex><span>  hub: localhost:5000
-</span></span><span style=display:flex><span>  tag: master
-</span></span><span style=display:flex><span>  components:
-</span></span><span style=display:flex><span>    ingressGateways:
-</span></span><span style=display:flex><span>    - name: istio-ingressgateway
-</span></span><span style=display:flex><span>      enabled: <span style=color:#fc5fa3>true</span>
-</span></span><span style=display:flex><span>      k8s:
-</span></span><span style=display:flex><span>        service:
-</span></span><span style=display:flex><span>          ports:
-</span></span><span style=display:flex><span>          - name: status-port
-</span></span><span style=display:flex><span>            port: <span style=color:#d0bf69>15021</span>
-</span></span><span style=display:flex><span>            targetPort: <span style=color:#d0bf69>15021</span>
-</span></span><span style=display:flex><span>          <span style=color:#6c7986># Both HTTPS and HTTP/3 must have</span>
-</span></span><span style=display:flex><span>          <span style=color:#6c7986># the same port number. Here it</span>
-</span></span><span style=display:flex><span>          <span style=color:#6c7986># is 443/TCP and 443/UDP</span>
-</span></span><span style=display:flex><span>          - name: https
-</span></span><span style=display:flex><span>            port: <span style=color:#d0bf69>443</span>
-</span></span><span style=display:flex><span>            targetPort: <span style=color:#d0bf69>8443</span>
-</span></span><span style=display:flex><span>          - name: http3
-</span></span><span style=display:flex><span>            port: <span style=color:#d0bf69>443</span>
-</span></span><span style=display:flex><span>            targetPort: <span style=color:#d0bf69>8443</span>
-</span></span><span style=display:flex><span>            protocol: UDP
-</span></span><span style=display:flex><span>  values:
-</span></span><span style=display:flex><span>    pilot:
-</span></span><span style=display:flex><span>      <span style=color:#6c7986># This is required to create mirror QUIC</span>
-</span></span><span style=display:flex><span>      <span style=color:#6c7986># listeners for TLS-terminated HTTPS listeners</span>
-</span></span><span style=display:flex><span>      <span style=color:#6c7986># on the gateway</span>
-</span></span><span style=display:flex><span>      env:
-</span></span><span style=display:flex><span>        PILOT_ENABLE_QUIC_LISTENERS: <span style=color:#fc5fa3>true</span>
-</span></span></code></pre></td></tr></table></div></div><p>Then install Istio</p><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">1
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ istioctl install -f istio.yaml -y
-</span></span></code></pre></td></tr></table></div></div><h3 id=deploying-httpbin>Deploying httpbin</h3><p>I am using the sample httpbin provided in the main Istio repository (<a href=https://raw.githubusercontent.com/istio/istio/master/samples/httpbin/httpbin.yaml>Link</a>). Deploy it with good old <code>kubectl</code>. Make sure that Istio sidecars are injected.
+built from the master branch.</p><h2 id=setup>Setup</h2><p>Demo setup consists of</p><ol><li>Setting up Istio</li><li>Deploying httpbin application</li><li>Setting up gateway TLS certificates</li><li>Configuring ingress gateway</li></ol><p>Here is the demo setup<figure><div><img loading=lazy alt=Setup src=images/setup.png></div></figure></p><h3 id=setting-up-istio>Setting up Istio</h3><p>There are two important things</p><ol><li>Set <code>PILOT_ENABLE_QUIC_LISTENERS</code> environment variable to <code>true</code> on <strong>Istiod</strong> to turn on generating HTTP/3 mirror listener on the gateway</li><li>Exposing both 443/UDP and 443/TCP - <strong>same port, different transport protocol</strong></li></ol><p>Here is an example <code>IstioOperator</code> spec.</p><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yaml data-lang=yaml><span style=display:flex><span><span style=color:navy>apiVersion</span>:<span style=color:#bbb> </span>install.istio.io/v1alpha1<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>kind</span>:<span style=color:#bbb> </span>IstioOperator<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>metadata</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>name</span>:<span style=color:#bbb> </span>install<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>spec</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:#998;font-style:italic># Replace HUB and TAG to point to your</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:#998;font-style:italic># image repository and the custom image tag</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>hub</span>:<span style=color:#bbb> </span>localhost:5000<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>tag</span>:<span style=color:#bbb> </span>master<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>components</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>    </span><span style=color:navy>ingressGateways</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>    </span>- <span style=color:navy>name</span>:<span style=color:#bbb> </span>istio-ingressgateway<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:navy>enabled</span>:<span style=color:#bbb> </span><span style=color:#000;font-weight:700>true</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:navy>k8s</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>        </span><span style=color:navy>service</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>          </span><span style=color:navy>ports</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>          </span>- <span style=color:navy>name</span>:<span style=color:#bbb> </span>status-port<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>            </span><span style=color:navy>port</span>:<span style=color:#bbb> </span><span style=color:#099>15021</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>            </span><span style=color:navy>targetPort</span>:<span style=color:#bbb> </span><span style=color:#099>15021</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>          </span><span style=color:#998;font-style:italic># Both HTTPS and HTTP/3 must have</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>          </span><span style=color:#998;font-style:italic># the same port number. Here it</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>          </span><span style=color:#998;font-style:italic># is 443/TCP and 443/UDP</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>          </span>- <span style=color:navy>name</span>:<span style=color:#bbb> </span>https<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>            </span><span style=color:navy>port</span>:<span style=color:#bbb> </span><span style=color:#099>443</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>            </span><span style=color:navy>targetPort</span>:<span style=color:#bbb> </span><span style=color:#099>8443</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>          </span>- <span style=color:navy>name</span>:<span style=color:#bbb> </span>http3<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>            </span><span style=color:navy>port</span>:<span style=color:#bbb> </span><span style=color:#099>443</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>            </span><span style=color:navy>targetPort</span>:<span style=color:#bbb> </span><span style=color:#099>8443</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>            </span><span style=color:navy>protocol</span>:<span style=color:#bbb> </span>UDP<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>values</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>    </span><span style=color:navy>pilot</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:#998;font-style:italic># This is required to create mirror QUIC</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:#998;font-style:italic># listeners for TLS-terminated HTTPS listeners</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:#998;font-style:italic># on the gateway</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:navy>env</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>        </span><span style=color:navy>PILOT_ENABLE_QUIC_LISTENERS</span>:<span style=color:#bbb> </span><span style=color:#000;font-weight:700>true</span><span style=color:#bbb>
+</span></span></span></code></pre></div><p>Then install Istio</p><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ istioctl install -f istio.yaml -y
+</span></span></code></pre></div><h3 id=deploying-httpbin>Deploying httpbin</h3><p>I am using the sample httpbin provided in the main Istio repository (<a href=https://raw.githubusercontent.com/istio/istio/master/samples/httpbin/httpbin.yaml>Link</a>). Deploy it with good old <code>kubectl</code>. Make sure that Istio sidecars are injected.
 You can turn on istio sidecar injection at the namespace level by labeling it <code>istio-injection=enabled</code>
-or if you are using revisions (please use it to make upgrades smoother), then it is <code>istio.io/rev=&lt;revision-name></code>.</p><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">4
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ kubectl create namespace httpbin
-</span></span><span style=display:flex><span>$ kubectl label namespace httpbin istio-injection=enabled
-</span></span><span style=display:flex><span>$ kubectl -n httpbin apply -f <span style=color:#fc6a5d>\
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d></span>  https://raw.githubusercontent.com/istio/istio/master/samples/httpbin/httpbin.yaml
-</span></span></code></pre></td></tr></table></div></div><h3 id=setting-up-tls-certificates-for-the-gateway>Setting up TLS certificates for the gateway</h3><p>HTTP/3 is over TLS only. In fact, using TLS is baked into QUIC, the underlying transport protocol
+or if you are using revisions (please use it to make upgrades smoother), then it is <code>istio.io/rev=&lt;revision-name></code>.</p><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ kubectl create namespace httpbin
+</span></span><span style=display:flex><span>$ kubectl label namespace httpbin istio-injection<span style=color:#000;font-weight:700>=</span>enabled
+</span></span><span style=display:flex><span>$ kubectl -n httpbin apply -f <span style=color:#d14>\
+</span></span></span><span style=display:flex><span><span style=color:#d14></span>  https://raw.githubusercontent.com/istio/istio/master/samples/httpbin/httpbin.yaml
+</span></span></code></pre></div><h3 id=setting-up-tls-certificates-for-the-gateway>Setting up TLS certificates for the gateway</h3><p>HTTP/3 is over TLS only. In fact, using TLS is baked into QUIC, the underlying transport protocol
 as described in <a href=https://datatracker.ietf.org/doc/html/rfc9000>RFC-9000</a> and <a href=https://datatracker.ietf.org/doc/html/rfc9001>RFC-9001</a>.
-So we need to generate and install certificates. For the demo, I&rsquo;m using self-signed certificates.</p><ol><li>Parameters for the certificate (Like SAN). Save it as <code>httpbin.cfg</code></li></ol><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 4
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 5
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 6
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 7
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 8
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 9
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">10
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">11
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">12
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">13
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">14
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">15
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">16
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-cfg data-lang=cfg><span style=display:flex><span><span style=color:#fc5fa3>[req]</span>
-</span></span><span style=display:flex><span>default_bits       = <span style=color:#fc6a5d>2048</span>
-</span></span><span style=display:flex><span>prompt             = <span style=color:#fc6a5d>no</span>
-</span></span><span style=display:flex><span>distinguished_name = <span style=color:#fc6a5d>req_distinguished_name</span>
-</span></span><span style=display:flex><span>req_extensions     = <span style=color:#fc6a5d>san_reqext</span>
+So we need to generate and install certificates. For the demo, I&rsquo;m using self-signed certificates.</p><ol><li>Parameters for the certificate (Like SAN). Save it as <code>httpbin.cfg</code></li></ol><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-cfg data-lang=cfg><span style=display:flex><span><span style=color:#000;font-weight:700>[req]</span>
+</span></span><span style=display:flex><span><span style=color:teal>default_bits</span>       <span style=color:#000;font-weight:700>=</span> <span style=color:#d14>2048</span>
+</span></span><span style=display:flex><span><span style=color:teal>prompt</span>             <span style=color:#000;font-weight:700>=</span> <span style=color:#d14>no</span>
+</span></span><span style=display:flex><span><span style=color:teal>distinguished_name</span> <span style=color:#000;font-weight:700>=</span> <span style=color:#d14>req_distinguished_name</span>
+</span></span><span style=display:flex><span><span style=color:teal>req_extensions</span>     <span style=color:#000;font-weight:700>=</span> <span style=color:#d14>san_reqext</span>
 </span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#fc5fa3>[ req_distinguished_name ]</span>
-</span></span><span style=display:flex><span>countryName         = <span style=color:#fc6a5d>XX</span>
-</span></span><span style=display:flex><span>stateOrProvinceName = <span style=color:#fc6a5d>YY</span>
-</span></span><span style=display:flex><span>organizationName    = <span style=color:#fc6a5d>QuicCorp</span>
+</span></span><span style=display:flex><span><span style=color:#000;font-weight:700>[ req_distinguished_name ]</span>
+</span></span><span style=display:flex><span><span style=color:teal>countryName</span>         <span style=color:#000;font-weight:700>=</span> <span style=color:#d14>XX</span>
+</span></span><span style=display:flex><span><span style=color:teal>stateOrProvinceName</span> <span style=color:#000;font-weight:700>=</span> <span style=color:#d14>YY</span>
+</span></span><span style=display:flex><span><span style=color:teal>organizationName</span>    <span style=color:#000;font-weight:700>=</span> <span style=color:#d14>QuicCorp</span>
 </span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#fc5fa3>[ san_reqext ]</span>
-</span></span><span style=display:flex><span>subjectAltName      = <span style=color:#fc6a5d>@alt_names</span>
+</span></span><span style=display:flex><span><span style=color:#000;font-weight:700>[ san_reqext ]</span>
+</span></span><span style=display:flex><span><span style=color:teal>subjectAltName</span>      <span style=color:#000;font-weight:700>=</span> <span style=color:#d14>@alt_names</span>
 </span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#fc5fa3>[alt_names]</span>
-</span></span><span style=display:flex><span>DNS.0   = <span style=color:#fc6a5d>httpbin.quic-corp.com</span>
-</span></span></code></pre></td></tr></table></div></div><ol start=2><li>Generate TLS certificates and keys with the following script. Here, I&rsquo;m using <code>openssl</code>. You can
-use other tools like <code>cfssl</code> as well.</li></ol><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">4
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">5
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">6
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">7
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">8
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">9
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ openssl req -x509 -sha256 -nodes -days <span style=color:#d0bf69>365</span> -newkey rsa:4096 -subj <span style=color:#fc6a5d>\
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d></span>    <span style=color:#fc6a5d>&#34;/C=XX/ST=YY/O=QuicCorp&#34;</span> -keyout quiccorp-ca.key -out quiccorp-ca.crt
+</span></span><span style=display:flex><span><span style=color:#000;font-weight:700>[alt_names]</span>
+</span></span><span style=display:flex><span><span style=color:teal>DNS.0</span>   <span style=color:#000;font-weight:700>=</span> <span style=color:#d14>httpbin.quic-corp.com</span>
+</span></span></code></pre></div><ol start=2><li>Generate TLS certificates and keys with the following script. Here, I&rsquo;m using <code>openssl</code>. You can
+use other tools like <code>cfssl</code> as well.</li></ol><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ openssl req -x509 -sha256 -nodes -days <span style=color:#099>365</span> -newkey rsa:4096 -subj <span style=color:#d14>\
+</span></span></span><span style=display:flex><span><span style=color:#d14></span>    <span style=color:#d14>&#34;/C=XX/ST=YY/O=QuicCorp&#34;</span> -keyout quiccorp-ca.key -out quiccorp-ca.crt
 </span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>$ openssl req -out httpbin.csr -newkey rsa:2048 -nodes <span style=color:#fc6a5d>\
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d></span>    -keyout httpbin.key -config httpbin.cnf
+</span></span><span style=display:flex><span>$ openssl req -out httpbin.csr -newkey rsa:2048 -nodes <span style=color:#d14>\
+</span></span></span><span style=display:flex><span><span style=color:#d14></span>    -keyout httpbin.key -config httpbin.cnf
 </span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>$ openssl x509 -req -days <span style=color:#d0bf69>365</span> -CA quiccorp-ca.crt -CAkey quiccorp-ca.key <span style=color:#fc6a5d>\
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d></span>    -set_serial <span style=color:#d0bf69>0</span> -in httpbin.csr -out httpbin.crt <span style=color:#fc6a5d>\
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d></span>    -extfile httpbin.cnf -extensions san_reqext
-</span></span></code></pre></td></tr></table></div></div><ol start=3><li>Install the certificates</li></ol><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">2
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ kubectl -n istio-system create secret tls httpbin-cred <span style=color:#fc6a5d>\
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d></span>    --key=httpbin.key --cert=httpbin.crt
-</span></span></code></pre></td></tr></table></div></div><h3 id=istio-configuration>Istio configuration</h3><p>Remember, HTTP/3 listener is generated <strong>automatically</strong> for TLS-terminated HTTPS listener. Currently,
+</span></span><span style=display:flex><span>$ openssl x509 -req -days <span style=color:#099>365</span> -CA quiccorp-ca.crt -CAkey quiccorp-ca.key <span style=color:#d14>\
+</span></span></span><span style=display:flex><span><span style=color:#d14></span>    -set_serial <span style=color:#099>0</span> -in httpbin.csr -out httpbin.crt <span style=color:#d14>\
+</span></span></span><span style=display:flex><span><span style=color:#d14></span>    -extfile httpbin.cnf -extensions san_reqext
+</span></span></code></pre></div><ol start=3><li>Install the certificates</li></ol><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ kubectl -n istio-system create secret tls httpbin-cred <span style=color:#d14>\
+</span></span></span><span style=display:flex><span><span style=color:#d14></span>    --key<span style=color:#000;font-weight:700>=</span>httpbin.key --cert<span style=color:#000;font-weight:700>=</span>httpbin.crt
+</span></span></code></pre></div><h3 id=istio-configuration>Istio configuration</h3><p>Remember, HTTP/3 listener is generated <strong>automatically</strong> for TLS-terminated HTTPS listener. Currently,
 specifying that a port is HTTP/3-only is not yet supported. This is because HTTP/3 support is not widespread
 yet and the most common use case is for the clients like Google Chrome to become aware of HTTP/3 support
-with <code>alt-svc</code> HTTP header in the response when they first use HTTP/1.1 or HTTP/2 over TCP.</p><p>Configure the gateway. Notice that there is no explicit HTTP/3 related configuration</p><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 4
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 5
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 6
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 7
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 8
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 9
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">10
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">11
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">12
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">13
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">14
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">15
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">16
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">17
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">18
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yml data-lang=yml><span style=display:flex><span>apiVersion: networking.istio.io/v1beta1
-</span></span><span style=display:flex><span>kind: Gateway
-</span></span><span style=display:flex><span>metadata:
-</span></span><span style=display:flex><span>  name: httpbin-gateway
-</span></span><span style=display:flex><span>spec:
-</span></span><span style=display:flex><span>  selector:
-</span></span><span style=display:flex><span>    app: istio-ingressgateway
-</span></span><span style=display:flex><span>    istio: ingressgateway
-</span></span><span style=display:flex><span>  servers:
-</span></span><span style=display:flex><span>  - port:
-</span></span><span style=display:flex><span>      number: <span style=color:#d0bf69>443</span>
-</span></span><span style=display:flex><span>      name: https
-</span></span><span style=display:flex><span>      protocol: HTTPS
-</span></span><span style=display:flex><span>    hosts:
-</span></span><span style=display:flex><span>    - httpbin.quic-corp.com
-</span></span><span style=display:flex><span>    tls:
-</span></span><span style=display:flex><span>      mode: SIMPLE
-</span></span><span style=display:flex><span>      credentialName: httpbin-cred
-</span></span></code></pre></td></tr></table></div></div><p>Configure the route</p><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 4
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 5
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 6
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 7
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 8
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 9
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">10
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">11
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">12
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">13
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">14
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">15
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">16
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yml data-lang=yml><span style=display:flex><span>apiVersion: networking.istio.io/v1beta1
-</span></span><span style=display:flex><span>kind: VirtualService
-</span></span><span style=display:flex><span>metadata:
-</span></span><span style=display:flex><span>  name: httpbin-route
-</span></span><span style=display:flex><span>spec:
-</span></span><span style=display:flex><span>  hosts:
-</span></span><span style=display:flex><span>  - httpbin.quic-corp.com
-</span></span><span style=display:flex><span>  gateways:
-</span></span><span style=display:flex><span>  - httpbin-gateway
-</span></span><span style=display:flex><span>  http:
-</span></span><span style=display:flex><span>  - name: httpbin-default-route
-</span></span><span style=display:flex><span>    route:
-</span></span><span style=display:flex><span>    - destination:
-</span></span><span style=display:flex><span>        host: httpbin.httpbin.svc.cluster.local
-</span></span><span style=display:flex><span>        port: 
-</span></span><span style=display:flex><span>          number: <span style=color:#d0bf69>8000</span>
-</span></span></code></pre></td></tr></table></div></div><p>Once these routes are applied, check if two listeners are created</p><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">4
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">5
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">6
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ istioctl proxy-config listeners istio-ingressgateway-6fdcddbb8b-9rpkx.istio-system
+with <code>alt-svc</code> HTTP header in the response when they first use HTTP/1.1 or HTTP/2 over TCP.</p><p>Configure the gateway. Notice that there is no explicit HTTP/3 related configuration</p><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yml data-lang=yml><span style=display:flex><span><span style=color:navy>apiVersion</span>:<span style=color:#bbb> </span>networking.istio.io/v1beta1<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>kind</span>:<span style=color:#bbb> </span>Gateway<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>metadata</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>name</span>:<span style=color:#bbb> </span>httpbin-gateway<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>spec</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>selector</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>    </span><span style=color:navy>app</span>:<span style=color:#bbb> </span>istio-ingressgateway<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>    </span><span style=color:navy>istio</span>:<span style=color:#bbb> </span>ingressgateway<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>servers</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span>- <span style=color:navy>port</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:navy>number</span>:<span style=color:#bbb> </span><span style=color:#099>443</span><span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:navy>name</span>:<span style=color:#bbb> </span>https<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:navy>protocol</span>:<span style=color:#bbb> </span>HTTPS<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>    </span><span style=color:navy>hosts</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>    </span>- httpbin.quic-corp.com<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>    </span><span style=color:navy>tls</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:navy>mode</span>:<span style=color:#bbb> </span>SIMPLE<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>      </span><span style=color:navy>credentialName</span>:<span style=color:#bbb> </span>httpbin-cred<span style=color:#bbb>
+</span></span></span></code></pre></div><p>Configure the route</p><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-yml data-lang=yml><span style=display:flex><span><span style=color:navy>apiVersion</span>:<span style=color:#bbb> </span>networking.istio.io/v1beta1<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>kind</span>:<span style=color:#bbb> </span>VirtualService<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>metadata</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>name</span>:<span style=color:#bbb> </span>httpbin-route<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb></span><span style=color:navy>spec</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>hosts</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span>- httpbin.quic-corp.com<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>gateways</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span>- httpbin-gateway<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span><span style=color:navy>http</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>  </span>- <span style=color:navy>name</span>:<span style=color:#bbb> </span>httpbin-default-route<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>    </span><span style=color:navy>route</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>    </span>- <span style=color:navy>destination</span>:<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>        </span><span style=color:navy>host</span>:<span style=color:#bbb> </span>httpbin.httpbin.svc.cluster.local<span style=color:#bbb>
+</span></span></span><span style=display:flex><span><span style=color:#bbb>        </span><span style=color:navy>port</span>:<span style=color:#bbb> 
+</span></span></span><span style=display:flex><span><span style=color:#bbb>          </span><span style=color:navy>number</span>:<span style=color:#bbb> </span><span style=color:#099>8000</span><span style=color:#bbb>
+</span></span></span></code></pre></div><p>Once these routes are applied, check if two listeners are created</p><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ istioctl proxy-config listeners istio-ingressgateway-6fdcddbb8b-9rpkx.istio-system
 </span></span><span style=display:flex><span>ADDRESS PORT  MATCH                      DESTINATION
-</span></span><span style=display:flex><span>0.0.0.0 <span style=color:#d0bf69>8443</span>  SNI: httpbin.quic-corp.com Route: https.443.https.httpbin-gateway.istio-system
-</span></span><span style=display:flex><span>0.0.0.0 <span style=color:#d0bf69>8443</span>  SNI: httpbin.quic-corp.com Route: https.443.https.httpbin-gateway.istio-system
-</span></span><span style=display:flex><span>0.0.0.0 <span style=color:#d0bf69>15021</span> ALL                        Inline Route: /healthz/ready*
-</span></span><span style=display:flex><span>0.0.0.0 <span style=color:#d0bf69>15090</span> ALL                        Inline Route: /stats/prometheus*
-</span></span></code></pre></td></tr></table></div></div><p>Where did the other inbound listener come from? Let us dive deeper into the config.
-Let us start with checking listener names</p><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">4
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ istioctl proxy-config listeners istio-ingressgateway-6fdcddbb8b-9rpkx.istio-system <span style=color:#fc6a5d>\
-</span></span></span><span style=display:flex><span><span style=color:#fc6a5d></span>    --address 0.0.0.0 --port <span style=color:#d0bf69>8443</span> -o json | jq -r <span style=color:#fc6a5d>&#39;.[].name&#39;</span>
+</span></span><span style=display:flex><span>0.0.0.0 <span style=color:#099>8443</span>  SNI: httpbin.quic-corp.com Route: https.443.https.httpbin-gateway.istio-system
+</span></span><span style=display:flex><span>0.0.0.0 <span style=color:#099>8443</span>  SNI: httpbin.quic-corp.com Route: https.443.https.httpbin-gateway.istio-system
+</span></span><span style=display:flex><span>0.0.0.0 <span style=color:#099>15021</span> ALL                        Inline Route: /healthz/ready*
+</span></span><span style=display:flex><span>0.0.0.0 <span style=color:#099>15090</span> ALL                        Inline Route: /stats/prometheus*
+</span></span></code></pre></div><p>Where did the other inbound listener come from? Let us dive deeper into the config.
+Let us start with checking listener names</p><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ istioctl proxy-config listeners istio-ingressgateway-6fdcddbb8b-9rpkx.istio-system <span style=color:#d14>\
+</span></span></span><span style=display:flex><span><span style=color:#d14></span>    --address 0.0.0.0 --port <span style=color:#099>8443</span> -o json | jq -r <span style=color:#d14>&#39;.[].name&#39;</span>
 </span></span><span style=display:flex><span>0.0.0.0_8443
 </span></span><span style=display:flex><span>udp_0.0.0.0_8443
-</span></span></code></pre></td></tr></table></div></div><p>UDP?? Remember that QUIC uses UDP. So could this be related to QUIC? Let us dive deeper.
-The output is huge and only the relevant part is shown here. So pipe it to a pager like <code>less</code></p><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 4
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 5
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 6
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 7
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 8
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f"> 9
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">10
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">11
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">12
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">13
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">14
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">15
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">16
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">17
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">18
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">19
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">20
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">21
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">22
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">23
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">24
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">25
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
-</span></span><span style=display:flex><span>  &#34;transportSocket&#34;: {
-</span></span><span style=display:flex><span>      &#34;name&#34;: <span style=color:#fc6a5d>&#34;envoy.transport_sockets.quic&#34;</span>,
-</span></span><span style=display:flex><span>      &#34;typedConfig&#34;: {
-</span></span><span style=display:flex><span>          &#34;@type&#34;: <span style=color:#fc6a5d>&#34;type.googleapis.com/envoy.extensions.transport_sockets.quic.v3.QuicDownstreamTransport&#34;</span>,
-</span></span><span style=display:flex><span>          &#34;downstreamTlsContext&#34;: {
-</span></span><span style=display:flex><span>              &#34;commonTlsContext&#34;: {
-</span></span><span style=display:flex><span>                  &#34;tlsCertificateSdsSecretConfigs&#34;: [
+</span></span></code></pre></div><p>UDP?? Remember that QUIC uses UDP. So could this be related to QUIC? Let us dive deeper.
+The output is huge and only the relevant part is shown here. So pipe it to a pager like <code>less</code></p><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
+</span></span><span style=display:flex><span>  <span style=color:navy>&#34;transportSocket&#34;</span>: {
+</span></span><span style=display:flex><span>      <span style=color:navy>&#34;name&#34;</span>: <span style=color:#d14>&#34;envoy.transport_sockets.quic&#34;</span>,
+</span></span><span style=display:flex><span>      <span style=color:navy>&#34;typedConfig&#34;</span>: {
+</span></span><span style=display:flex><span>          <span style=color:navy>&#34;@type&#34;</span>: <span style=color:#d14>&#34;type.googleapis.com/envoy.extensions.transport_sockets.quic.v3.QuicDownstreamTransport&#34;</span>,
+</span></span><span style=display:flex><span>          <span style=color:navy>&#34;downstreamTlsContext&#34;</span>: {
+</span></span><span style=display:flex><span>              <span style=color:navy>&#34;commonTlsContext&#34;</span>: {
+</span></span><span style=display:flex><span>                  <span style=color:navy>&#34;tlsCertificateSdsSecretConfigs&#34;</span>: [
 </span></span><span style=display:flex><span>                      {
-</span></span><span style=display:flex><span>                          &#34;name&#34;: <span style=color:#fc6a5d>&#34;kubernetes://httpbin-cred&#34;</span>,
-</span></span><span style=display:flex><span>                          &#34;sdsConfig&#34;: {
-</span></span><span style=display:flex><span>                              &#34;ads&#34;: {},
-</span></span><span style=display:flex><span>                              &#34;resourceApiVersion&#34;: <span style=color:#fc6a5d>&#34;V3&#34;</span>
+</span></span><span style=display:flex><span>                          <span style=color:navy>&#34;name&#34;</span>: <span style=color:#d14>&#34;kubernetes://httpbin-cred&#34;</span>,
+</span></span><span style=display:flex><span>                          <span style=color:navy>&#34;sdsConfig&#34;</span>: {
+</span></span><span style=display:flex><span>                              <span style=color:navy>&#34;ads&#34;</span>: {},
+</span></span><span style=display:flex><span>                              <span style=color:navy>&#34;resourceApiVersion&#34;</span>: <span style=color:#d14>&#34;V3&#34;</span>
 </span></span><span style=display:flex><span>                          }
 </span></span><span style=display:flex><span>                      }
 </span></span><span style=display:flex><span>                  ],
-</span></span><span style=display:flex><span>                  &#34;alpnProtocols&#34;: [
-</span></span><span style=display:flex><span>                      <span style=color:#fc6a5d>&#34;h3&#34;</span>
+</span></span><span style=display:flex><span>                  <span style=color:navy>&#34;alpnProtocols&#34;</span>: [
+</span></span><span style=display:flex><span>                      <span style=color:#d14>&#34;h3&#34;</span>
 </span></span><span style=display:flex><span>                  ]
 </span></span><span style=display:flex><span>              },
-</span></span><span style=display:flex><span>              &#34;requireClientCertificate&#34;: <span style=color:#fc5fa3>false</span>
+</span></span><span style=display:flex><span>              <span style=color:navy>&#34;requireClientCertificate&#34;</span>: <span style=color:#000;font-weight:700>false</span>
 </span></span><span style=display:flex><span>          }
 </span></span><span style=display:flex><span>      }
 </span></span><span style=display:flex><span>  }
 </span></span><span style=display:flex><span>}
-</span></span></code></pre></td></tr></table></div></div><p>Well&mldr;The one with <code>udp</code> prefix is a QUIC listener!</p><h2 id=demo-time>Demo time</h2><p>First note down the address of the Ingress gateway</p><div class=highlight><div style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><table style=border-spacing:0;padding:0;margin:0;border:0><tr><td style=vertical-align:top;padding:0;margin:0;border:0><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">1
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">2
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">3
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">4
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">5
-</span><span style="white-space:pre;-webkit-user-select:none;user-select:none;margin-right:.4em;padding:0 .4em;color:#7f7f7f">6
-</span></code></pre></td><td style=vertical-align:top;padding:0;margin:0;border:0;width:100%><pre tabindex=0 style=color:#fff;background-color:#1f1f24;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ kubectl -n istio-system get svc
-</span></span><span style=display:flex><span>NAME                   TYPE           CLUSTER-IP      EXTERNAL-IP    PORT(S)                                       AGE
+</span></span></code></pre></div><p>Well&mldr;The one with <code>udp</code> prefix is a QUIC listener!</p><h2 id=demo-time>Demo time</h2><p>First note down the address of the Ingress gateway</p><div class=highlight><pre tabindex=0 style=background-color:#fff;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-bash data-lang=bash><span style=display:flex><span>$ kubectl -n istio-system get svc
+</span></span><span style=display:flex><span>NAME                   TYPE           CLUSTER-IP      EXTERNAL-IP    PORT<span style=color:#000;font-weight:700>(</span>S<span style=color:#000;font-weight:700>)</span>                                       AGE
 </span></span><span style=display:flex><span>istio-ingressgateway   LoadBalancer   10.96.112.53    172.18.200.1   15021:32534/TCP,443:31597/TCP,443:31597/UDP   79m
 </span></span><span style=display:flex><span>istiod                 ClusterIP      10.96.255.123   &lt;none&gt;         15010/TCP,15012/TCP,443/TCP,15014/TCP         79m
 </span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span>$ <span style=color:#d0a8ff>export</span> <span style=color:#41a1c0>INGRESS_IP</span>=172.18.200.1
-</span></span></code></pre></td></tr></table></div></div><p>I have a custom build of curl called <code>qcurl</code> which supports sending HTTP/3 request with
+</span></span><span style=display:flex><span>$ <span style=color:#0086b3>export</span> <span style=color:teal>INGRESS_IP</span><span style=color:#000;font-weight:700>=</span>172.18.200.1
+</span></span></code></pre></div><p>I have a custom build of curl called <code>qcurl</code> which supports sending HTTP/3 request with
 <code>--http3</code> flag. <code>curl</code> here is the standard curl available in the software repositories.
 For demo purposes, I&rsquo;m skipping TLS certificate verification. Don&rsquo;t this if it is not a demo.</p><p>Let us first send HTTP/2 request</p><pre tabindex=0><code>$ curl -svk --http2 --resolve httpbin.quic-corp.com:443:$INGRESS_IP https://httpbin.quic-corp.com/headers
 [ Output truncated ]
