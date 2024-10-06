@@ -8,7 +8,7 @@ enableRobotsTXT = true
 tag = 'tags'
 
 [params]
-theme = 'dark'
+theme = 'light'
 homeIntroTitle = "Welcome to my blog"
 homeIntroContent = """
 I am a software engineer living in Amsterdam, the Netherlands. Currently,
@@ -47,9 +47,8 @@ url = "/about"
 
 [markup]
     [markup.highlight]
-    style = 'xcode-dark'
-    lineNos = true
-    lineNumbersInTable = true
+    style = 'github'
+    lineNos = false
     
     [markup.tableOfContents]
     ordered = false
