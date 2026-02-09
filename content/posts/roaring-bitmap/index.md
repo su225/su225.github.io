@@ -27,8 +27,16 @@ Link to the papers
 1. Set operations - union, intersection and difference need to consider different representations
 
 ## Representation
+1. It can store a maximum of 2^32^ elements divided into 2^16^ chunks.
+1. The list of chunks is sparse and is sorted by `chunk_index` which is top 16 bits.
+1. Each chunk has to maintain the invariant: If the number of elements is <= 4096, then sparse representation must be used. Otherwise, dense representation must be used.
 
-## Set operations
+| Mode | Data structure used |
+|------|---------------------|
+| Sparse | Sorted array |
+| Dense | Bitset |
+
+## Mutation
 Set operations between two bitsets happen at the chunk level - i.e chunks with the same chunk index. This also means that the chunks can be processed in parallel to speed up the operations
 
 Insertion and deletion require computing chunk indexes to jump to the chunk. Given the `u32` item, here's how to extract the `chunk_index` and the `container_element` position
@@ -44,7 +52,7 @@ fn container_element(item: u32) -> u16 {
 }
 ```
 
-### Insertion into the set
+### Insertion
 Algorithm
 1. Compute `chunk_index` and `container_element`
 1. If the chunk at the `chunk_index` does not exist then create a sparse one and insert it
@@ -52,7 +60,15 @@ Algorithm
     1. If sparse, then insert the `container_element` into the sorted set. If the resulting length is more than 4096 then it has to be converted into the dense representation
     1. If dense, set the bit position and we are done
 
-### Deletion into the set
+### Deletion
+Algorithm
+1. Compute `chunk_index` and `container_element` to locate the element to be deleted.
+1. If the chunk at the `chunk_index` does not exist then we are done.
+1. Otherwise, delete from the selected chunk
+    1. If sparse, then remove the entry from the sorted array. If empty, remove the chunk from the list of chunks.
+    1. If dense, then clear the bit in the position corresponding to `container_element`
+
+## Set operations
 
 ### Union
 1. **Bitmap v Bitmap**: Good old bitwise OR of all the elements. The resulting container would also be dense because if a bit is set in one, it will be in another.
